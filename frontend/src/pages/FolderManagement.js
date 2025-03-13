@@ -39,8 +39,8 @@ function FolderManagement() {
     
     try {
       const data = await getFolders();
-      setFolders(data.folders);
-      setMasterBucket(data.master_bucket);
+      setFolders(data.folders || []);
+      setMasterBucket(data.master_bucket || '');
     } catch (error) {
       console.error('Error fetching folders:', error);
       setError('Failed to load folders. Please try again later.');
@@ -53,10 +53,10 @@ function FolderManagement() {
     fetchFolders();
   }, []);
 
-  const handleCreateFolder = async (event) => {
-    event.preventDefault();
+  const handleCreateFolder = async (e) => {
+    e.preventDefault();
     
-    if (!newFolderName) {
+    if (!newFolderName.trim()) {
       setError('Please enter a folder name');
       return;
     }
@@ -67,20 +67,29 @@ function FolderManagement() {
     
     try {
       await createFolder(newFolderName);
-      setSuccess(`Folder ${newFolderName} created successfully`);
+      setSuccess(`Folder "${newFolderName}" created successfully`);
       setNewFolderName('');
       fetchFolders();
     } catch (error) {
       console.error('Error creating folder:', error);
-      setError(error.response?.data?.detail || 'Error creating folder');
+      // Convert error object to string if it's an object
+      const errorMessage = typeof error === 'object' ? 
+        (error.message || JSON.stringify(error)) : 
+        String(error);
+      setError(`Failed to create folder: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDeleteClick = (folder) => {
-    setFolderToDelete(folder);
+  const handleDeleteClick = (folderName) => {
+    setFolderToDelete(folderName);
     setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteDialogOpen(false);
+    setFolderToDelete(null);
   };
 
   const handleDeleteConfirm = async () => {
@@ -90,20 +99,20 @@ function FolderManagement() {
     
     try {
       await deleteFolder(folderToDelete);
-      setSuccess(`Folder ${folderToDelete} deleted successfully`);
-      setFolders(folders.filter(f => f !== folderToDelete));
-      setDeleteDialogOpen(false);
+      setSuccess(`Folder "${folderToDelete}" deleted successfully`);
+      fetchFolders();
     } catch (error) {
       console.error('Error deleting folder:', error);
-      setError(error.response?.data?.detail || 'Error deleting folder');
+      // Convert error object to string if it's an object
+      const errorMessage = typeof error === 'object' ? 
+        (error.message || JSON.stringify(error)) : 
+        String(error);
+      setError(`Failed to delete folder: ${errorMessage}`);
     } finally {
       setDeleteLoading(false);
+      setDeleteDialogOpen(false);
+      setFolderToDelete(null);
     }
-  };
-
-  const handleDeleteCancel = () => {
-    setDeleteDialogOpen(false);
-    setFolderToDelete(null);
   };
 
   return (
@@ -112,11 +121,7 @@ function FolderManagement() {
         Folder Management
       </Typography>
       
-      <Typography variant="subtitle1" gutterBottom>
-        Master Bucket: {masterBucket}
-      </Typography>
-      
-      {error && (
+      {error && typeof error === 'string' && (
         <Alert severity="error" sx={{ mb: 3 }}>
           {error}
         </Alert>
@@ -128,58 +133,62 @@ function FolderManagement() {
         </Alert>
       )}
       
-      <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 3 }}>
-        <Paper elevation={2} sx={{ p: 3, flex: 1 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h6">
-              Available Folders
-            </Typography>
-            <Button 
-              startIcon={<RefreshIcon />} 
-              onClick={fetchFolders}
-              disabled={loading}
-            >
-              Refresh
-            </Button>
-          </Box>
-          
-          {loading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
+      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Typography variant="h6">
+          Master Bucket: {masterBucket}
+        </Typography>
+        
+        <Button
+          variant="outlined"
+          startIcon={<RefreshIcon />}
+          onClick={fetchFolders}
+          disabled={loading}
+        >
+          Refresh
+        </Button>
+      </Box>
+      
+      <Paper elevation={2} sx={{ mb: 4 }}>
+        <List>
+          {loading && folders.length === 0 ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
               <CircularProgress />
             </Box>
           ) : folders.length === 0 ? (
-            <Alert severity="info">
-              No folders found.
-            </Alert>
+            <ListItem>
+              <ListItemText primary="No folders found" />
+            </ListItem>
           ) : (
-            <List>
-              {folders.map((folder) => (
-                <ListItem key={folder} divider>
-                  <ListItemText 
-                    primary={folder} 
-                    secondary={folder === 'metadata' ? 'System Folder' : ''}
+            folders.map((folder, index) => (
+              <React.Fragment key={folder}>
+                {index > 0 && <Divider />}
+                <ListItem>
+                  <ListItemText
+                    primary={folder}
+                    secondary={`s3://${masterBucket}/${folder}/`}
                   />
                   <ListItemSecondaryAction>
-                    <IconButton 
-                      edge="end" 
-                      color="error"
+                    <IconButton
+                      edge="end"
+                      aria-label="delete"
                       onClick={() => handleDeleteClick(folder)}
-                      disabled={folder === 'metadata' || folder === 'documents'}
                     >
                       <DeleteIcon />
                     </IconButton>
                   </ListItemSecondaryAction>
                 </ListItem>
-              ))}
-            </List>
+              </React.Fragment>
+            ))
           )}
-        </Paper>
+        </List>
+      </Paper>
+      
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h6" gutterBottom>
+          Create New Folder
+        </Typography>
         
-        <Paper elevation={2} sx={{ p: 3, flex: 1 }}>
-          <Typography variant="h6" gutterBottom>
-            Create New Folder
-          </Typography>
-          
+        <Paper elevation={2} sx={{ p: 3 }}>
           <form onSubmit={handleCreateFolder}>
             <TextField
               label="Folder Name"
@@ -234,4 +243,4 @@ function FolderManagement() {
   );
 }
 
-export default FolderManagement; 
+export default FolderManagement;
