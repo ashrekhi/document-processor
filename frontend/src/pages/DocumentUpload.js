@@ -51,7 +51,7 @@ function DocumentUpload() {
       setSourceName('');
       setDescription('');
       
-      // Redirect to documents page after 2 seconds
+      // Redirect to documents list after 2 seconds
       setTimeout(() => {
         navigate('/documents');
       }, 2000);
@@ -69,33 +69,29 @@ function DocumentUpload() {
         Upload Document
       </Typography>
       
-      <Paper elevation={2} sx={{ p: 3, maxWidth: 600, mx: 'auto' }}>
-        {success ? (
-          <Alert severity="success" sx={{ mb: 3 }}>
-            <AlertTitle>Success</AlertTitle>
-            Document uploaded successfully! Redirecting to documents page...
-          </Alert>
-        ) : null}
-        
-        {error ? (
-          <Alert severity="error" sx={{ mb: 3 }}>
-            <AlertTitle>Error</AlertTitle>
-            {error}
-          </Alert>
-        ) : null}
-        
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {error}
+        </Alert>
+      )}
+      
+      {success && (
+        <Alert severity="success" sx={{ mb: 3 }}>
+          <AlertTitle>Success</AlertTitle>
+          Document uploaded successfully! Redirecting to documents list...
+        </Alert>
+      )}
+      
+      <Paper elevation={2} sx={{ p: 3 }}>
         <form onSubmit={handleSubmit}>
           <Box sx={{ mb: 3 }}>
-            <Typography variant="subtitle1" gutterBottom>
-              Select Document
-            </Typography>
             <Button
-              variant="outlined"
+              variant="contained"
               component="label"
-              startIcon={<UploadIcon />}
               fullWidth
+              sx={{ p: 2, border: '1px dashed grey', bgcolor: 'background.paper' }}
             >
-              {file ? file.name : 'Choose File'}
+              {file ? file.name : 'Select File'}
               <input
                 type="file"
                 hidden
@@ -104,7 +100,7 @@ function DocumentUpload() {
               />
             </Button>
             <Typography variant="caption" color="text.secondary">
-              Supported formats: PDF, TXT, MD
+              Supported file types: PDF, TXT, MD
             </Typography>
           </Box>
           

@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 class DocumentResponse(BaseModel):
     id: str
@@ -15,4 +15,8 @@ class QuestionRequest(BaseModel):
 class QuestionResponse(BaseModel):
     question: str
     answer: str
-    document_ids: List[str] 
+    document_ids: List[str]
+
+class FolderInfo(BaseModel):
+    master_bucket: str
+    folders: List[str] 

@@ -1,14 +1,15 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Form
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 import uuid
 import os
 from dotenv import load_dotenv
 
-from app.services.document_service import DocumentService
+# Import services after FastAPI initialization
 from app.services.s3_service import S3Service
+from app.services.document_service import DocumentService
 from app.services.rag_service import RAGService
-from app.models.models import DocumentResponse, QuestionRequest, QuestionResponse
+from app.models.models import DocumentResponse, QuestionRequest, QuestionResponse, FolderInfo
 
 load_dotenv()
 
@@ -35,30 +36,20 @@ async def upload_document(
     description: Optional[str] = Form(None)
 ):
     """
-    Upload a document to a dedicated S3 bucket and process it for RAG.
-    Each document gets its own bucket for isolation.
+    Upload a document to the master bucket and process it for RAG.
     """
     try:
         # Generate a unique ID for the document
         doc_id = str(uuid.uuid4())
         
-        # Create a new bucket for this document
-        bucket_name = f"doc-processor-{doc_id}"
-        s3_service.create_bucket(bucket_name)
-        
-        # Save file to S3
+        # Read file content
         content = await file.read()
-        file_extension = os.path.splitext(file.filename)[1]
-        s3_key = f"{doc_id}{file_extension}"
-        
-        s3_url = s3_service.upload_file(bucket_name, s3_key, content)
         
         # Process document for RAG
         document_info = document_service.process_document(
             doc_id=doc_id,
             filename=file.filename,
-            bucket_name=bucket_name,
-            s3_key=s3_key,
+            content=content,
             source_name=source_name,
             description=description
         )
@@ -68,7 +59,7 @@ async def upload_document(
             filename=file.filename,
             source=source_name,
             description=description,
-            s3_url=s3_url
+            s3_url=document_info["s3_url"]
         )
     
     except Exception as e:
@@ -88,7 +79,7 @@ async def list_documents():
 @app.delete("/documents/{doc_id}")
 async def delete_document(doc_id: str):
     """
-    Delete a document and its associated bucket.
+    Delete a document and its associated data.
     """
     try:
         document_service.delete_document(doc_id)
@@ -113,6 +104,39 @@ async def ask_question(request: QuestionRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing question: {str(e)}")
+
+@app.get("/folders")
+async def get_folders():
+    """
+    Get information about available folders in the master bucket.
+    """
+    try:
+        folder_info = document_service.get_folder_info()
+        return folder_info
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting folder info: {str(e)}")
+
+@app.post("/folders")
+async def create_folder(folder_name: str = Form(...)):
+    """
+    Create a new folder in the master bucket.
+    """
+    try:
+        s3_url = s3_service.create_folder(folder_name)
+        return {"message": f"Folder {folder_name} created successfully", "s3_url": s3_url}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating folder: {str(e)}")
+
+@app.delete("/folders/{folder_name}")
+async def delete_folder(folder_name: str):
+    """
+    Delete a folder and all its contents.
+    """
+    try:
+        s3_service.delete_folder(folder_name)
+        return {"message": f"Folder {folder_name} deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting folder: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

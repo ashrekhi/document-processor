@@ -46,4 +46,23 @@ export const askQuestion = async (question, documentIds) => {
   return response.data;
 };
 
+// New folder management functions
+export const getFolders = async () => {
+  const response = await api.get('/folders');
+  return response.data;
+};
+
+export const createFolder = async (folderName) => {
+  const formData = new FormData();
+  formData.append('folder_name', folderName);
+  
+  const response = await api.post('/folders', formData);
+  return response.data;
+};
+
+export const deleteFolder = async (folderName) => {
+  const response = await api.delete(`/folders/${folderName}`);
+  return response.data;
+};
+
 export default api; 

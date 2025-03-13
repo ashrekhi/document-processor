@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard';
 import DocumentUpload from './pages/DocumentUpload';
 import DocumentList from './pages/DocumentList';
 import QuestionAnswering from './pages/QuestionAnswering';
+import FolderManagement from './pages/FolderManagement';
 
 // Create a theme
 const theme = createTheme({
@@ -35,6 +36,7 @@ function App() {
             <Route path="/upload" element={<DocumentUpload />} />
             <Route path="/documents" element={<DocumentList />} />
             <Route path="/ask" element={<QuestionAnswering />} />
+            <Route path="/folders" element={<FolderManagement />} />
           </Routes>
         </Layout>
       </Router>

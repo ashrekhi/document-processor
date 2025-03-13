@@ -40,77 +40,69 @@ function Dashboard() {
         </Typography>
         <Typography variant="body1" paragraph>
           This application allows you to upload documents, process them using Retrieval-Augmented Generation (RAG),
-          and ask questions about their content. Each document is stored in its own isolated S3 bucket for enhanced security.
+          and ask questions about their content. All documents are stored in a single master bucket with organized folders.
         </Typography>
       </Paper>
       
       <Grid container spacing={3}>
-        <Grid item xs={12} sm={4}>
+        <Grid item xs={12} md={4}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                Documents
+                Upload Documents
               </Typography>
-              <Typography variant="h3" color="primary">
-                {documentCount}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Total documents uploaded
-              </Typography>
-              <Button
-                variant="outlined"
-                startIcon={<DocumentIcon />}
-                component={RouterLink}
-                to="/documents"
-                fullWidth
-              >
-                View Documents
-              </Button>
-            </CardContent>
-          </Card>
-        </Grid>
-        
-        <Grid item xs={12} sm={4}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Upload
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Upload new documents to process
+              <Typography variant="body2" color="text.secondary" paragraph>
+                Upload PDF, TXT, or MD files to process with RAG.
               </Typography>
               <Button
                 variant="contained"
-                color="primary"
-                startIcon={<UploadIcon />}
                 component={RouterLink}
                 to="/upload"
-                fullWidth
+                startIcon={<UploadIcon />}
               >
-                Upload Document
+                Upload
               </Button>
             </CardContent>
           </Card>
         </Grid>
         
-        <Grid item xs={12} sm={4}>
+        <Grid item xs={12} md={4}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                View Documents
+              </Typography>
+              <Typography variant="body2" color="text.secondary" paragraph>
+                You have {documentCount} document(s) uploaded.
+              </Typography>
+              <Button
+                variant="contained"
+                component={RouterLink}
+                to="/documents"
+                startIcon={<DocumentIcon />}
+              >
+                View All
+              </Button>
+            </CardContent>
+          </Card>
+        </Grid>
+        
+        <Grid item xs={12} md={4}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
                 Ask Questions
               </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Ask questions about your documents
+              <Typography variant="body2" color="text.secondary" paragraph>
+                Ask questions about your documents using RAG.
               </Typography>
               <Button
                 variant="contained"
-                color="secondary"
-                startIcon={<QuestionIcon />}
                 component={RouterLink}
                 to="/ask"
-                fullWidth
+                startIcon={<QuestionIcon />}
               >
-                Ask Questions
+                Ask
               </Button>
             </CardContent>
           </Card>
