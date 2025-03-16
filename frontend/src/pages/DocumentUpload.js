@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -9,9 +9,14 @@ import {
   CircularProgress,
   Alert,
   AlertTitle,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Select,
+  FormHelperText,
 } from '@mui/material';
-import { CloudUpload as UploadIcon } from '@mui/icons-material';
-import { uploadDocument } from '../services/api';
+import { CloudUpload as UploadIcon, Folder as FolderIcon } from '@mui/icons-material';
+import { uploadDocument, getFolders } from '../services/api';
 
 function DocumentUpload() {
   const navigate = useNavigate();
@@ -21,6 +26,24 @@ function DocumentUpload() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [folders, setFolders] = useState([]);
+  const [foldersLoading, setFoldersLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchFolders = async () => {
+      setFoldersLoading(true);
+      try {
+        const data = await getFolders();
+        setFolders(data.folders || []);
+      } catch (error) {
+        console.error('Error fetching folders:', error);
+      } finally {
+        setFoldersLoading(false);
+      }
+    };
+
+    fetchFolders();
+  }, []);
 
   const handleFileChange = (event) => {
     setFile(event.target.files[0]);
@@ -35,7 +58,7 @@ function DocumentUpload() {
     }
     
     if (!sourceName) {
-      setError('Please enter a source name');
+      setError('Please select a folder');
       return;
     }
     
@@ -104,15 +127,34 @@ function DocumentUpload() {
             </Typography>
           </Box>
           
-          <TextField
-            label="Source Name"
-            value={sourceName}
-            onChange={(e) => setSourceName(e.target.value)}
-            fullWidth
-            required
-            margin="normal"
-            helperText="Enter a name for the source of this document"
-          />
+          <FormControl fullWidth margin="normal" required>
+            <InputLabel id="folder-select-label">Folder</InputLabel>
+            <Select
+              labelId="folder-select-label"
+              value={sourceName}
+              onChange={(e) => setSourceName(e.target.value)}
+              label="Folder"
+              disabled={foldersLoading}
+              startAdornment={<FolderIcon sx={{ mr: 1, ml: -0.5 }} />}
+            >
+              {foldersLoading ? (
+                <MenuItem disabled>Loading folders...</MenuItem>
+              ) : folders.length === 0 ? (
+                <MenuItem disabled>No folders available</MenuItem>
+              ) : (
+                folders.map((folder) => (
+                  <MenuItem key={folder} value={folder}>
+                    {folder}
+                  </MenuItem>
+                ))
+              )}
+            </Select>
+            <FormHelperText>
+              {folders.length === 0 && !foldersLoading ? 
+                "Please create a folder in Folder Management first" : 
+                "Select a folder to store this document"}
+            </FormHelperText>
+          </FormControl>
           
           <TextField
             label="Description (Optional)"
@@ -125,12 +167,22 @@ function DocumentUpload() {
             helperText="Enter a description for this document"
           />
           
-          <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end' }}>
+          <Box sx={{ mt: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            {folders.length === 0 && !foldersLoading && (
+              <Button
+                variant="outlined"
+                color="primary"
+                onClick={() => navigate('/folders')}
+              >
+                Create Folder
+              </Button>
+            )}
+            <Box sx={{ flex: 1 }} />
             <Button
               type="submit"
               variant="contained"
               color="primary"
-              disabled={loading}
+              disabled={loading || folders.length === 0}
               startIcon={loading ? <CircularProgress size={20} /> : <UploadIcon />}
             >
               {loading ? 'Uploading...' : 'Upload Document'}
