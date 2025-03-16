@@ -15,6 +15,9 @@ import {
   Alert,
   Card,
   CardContent,
+  Select,
+  MenuItem,
+  InputLabel,
 } from '@mui/material';
 import { Send as SendIcon, QuestionAnswer as QuestionIcon } from '@mui/icons-material';
 import { listDocuments, askQuestion } from '../services/api';
@@ -27,6 +30,13 @@ function QuestionAnswering() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [documentsLoading, setDocumentsLoading] = useState(true);
+  const [selectedModel, setSelectedModel] = useState('gpt-3.5-turbo');
+
+  const models = [
+    { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
+    { id: 'gpt-4', name: 'GPT-4' },
+    { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
+  ];
 
   useEffect(() => {
     const fetchDocuments = async () => {
@@ -56,6 +66,10 @@ function QuestionAnswering() {
     }
   };
 
+  const handleModelChange = (event) => {
+    setSelectedModel(event.target.value);
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     
@@ -74,7 +88,7 @@ function QuestionAnswering() {
     setAnswer('');
     
     try {
-      const response = await askQuestion(question, selectedDocuments);
+      const response = await askQuestion(question, selectedDocuments, selectedModel);
       setAnswer(response.answer);
     } catch (error) {
       console.error('Error asking question:', error);
@@ -133,6 +147,23 @@ function QuestionAnswering() {
           
           <Divider sx={{ my: 2 }} />
           
+          <FormControl fullWidth margin="normal">
+            <InputLabel id="model-select-label">Model</InputLabel>
+            <Select
+              labelId="model-select-label"
+              id="model-select"
+              value={selectedModel}
+              label="Model"
+              onChange={handleModelChange}
+            >
+              {models.map((model) => (
+                <MenuItem key={model.id} value={model.id}>
+                  {model.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          
           <form onSubmit={handleSubmit}>
             <TextField
               label="Your Question"
@@ -181,6 +212,10 @@ function QuestionAnswering() {
                   </Box>
                   
                   <Divider sx={{ mb: 2 }} />
+                  
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    Model: {models.find(m => m.id === selectedModel)?.name || selectedModel}
+                  </Typography>
                   
                   <Typography variant="body1" sx={{ whiteSpace: 'pre-line' }}>
                     {answer}

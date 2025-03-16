@@ -1,6 +1,7 @@
 import json
 import os
 from typing import List, Dict, Any
+from openai import OpenAI
 
 from app.services.embedding_service import EmbeddingService
 from app.services.s3_service import S3Service
@@ -10,9 +11,15 @@ class RAGService:
         self.s3_service = S3Service()
         self.embedding_service = EmbeddingService()
         self.metadata_folder = "metadata"
+        self.api_key = os.getenv('OPENAI_API_KEY')
+        if not self.api_key:
+            print("WARNING: OPENAI_API_KEY not set. Using mock responses.")
+            self.client = None
+        else:
+            self.client = OpenAI(api_key=self.api_key)
     
-    def answer_question(self, question: str, doc_ids: List[str]) -> str:
-        """Answer a question using RAG approach with the specified documents"""
+    def answer_question(self, question: str, doc_ids: List[str], model: str = "gpt-3.5-turbo") -> str:
+        """Answer a question using RAG approach with the specified documents and model"""
         # Get all chunks from the specified documents
         all_chunks = []
         all_embeddings = []
@@ -57,5 +64,22 @@ class RAGService:
         # Build context from top chunks
         context = "\n\n".join([all_chunks[i] for i in top_indices])
         
-        # Mock answer generation
-        return f"This is a mock answer to the question: '{question}' based on the provided context. In a real implementation, this would use OpenAI's API to generate a response based on the retrieved document chunks." 
+        # Use OpenAI to generate an answer
+        if not self.client:
+            return f"This is a mock answer to the question: '{question}' based on the provided context. In a real implementation, this would use OpenAI's API with model {model} to generate a response based on the retrieved document chunks."
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that answers questions based on the provided context. If the answer cannot be found in the context, say so."},
+                    {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"}
+                ],
+                max_tokens=500,
+                temperature=0.3
+            )
+            
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"Error generating answer with OpenAI: {str(e)}")
+            return f"Error generating answer: {str(e)}" 

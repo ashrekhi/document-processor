@@ -62,10 +62,11 @@ export const deleteDocument = async (docId) => {
   return response.data;
 };
 
-export const askQuestion = async (question, documentIds) => {
+export const askQuestion = async (question, documentIds, model = "gpt-3.5-turbo") => {
   const response = await api.post('/ask', {
     question,
     document_ids: documentIds,
+    model
   });
   
   return response.data;

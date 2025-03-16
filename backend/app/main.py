@@ -95,12 +95,14 @@ async def ask_question(request: QuestionRequest):
     try:
         answer = rag_service.answer_question(
             question=request.question,
-            doc_ids=request.document_ids
+            doc_ids=request.document_ids,
+            model=request.model
         )
         return QuestionResponse(
             question=request.question,
             answer=answer,
-            document_ids=request.document_ids
+            document_ids=request.document_ids,
+            model=request.model
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing question: {str(e)}")

@@ -11,11 +11,13 @@ class DocumentResponse(BaseModel):
 class QuestionRequest(BaseModel):
     question: str
     document_ids: List[str]
+    model: Optional[str] = "gpt-3.5-turbo"
 
 class QuestionResponse(BaseModel):
     question: str
     answer: str
     document_ids: List[str]
+    model: Optional[str] = "gpt-3.5-turbo"
 
 class FolderInfo(BaseModel):
     master_bucket: str
