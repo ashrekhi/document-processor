@@ -1,5 +1,6 @@
 import boto3
 import os
+import time
 from io import BytesIO
 from botocore.exceptions import ClientError
 
@@ -9,15 +10,52 @@ class S3Service:
             's3',
             aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
             aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-            region_name=os.getenv('AWS_REGION', 'us-east-1')
+            region_name=os.getenv('AWS_REGION', 'us-west-2')
         )
-        self.master_bucket = os.getenv('MASTER_BUCKET', 'doc-processor-master')
+        self.master_bucket = os.getenv('METADATA_BUCKET', 'doc-processor-metadata')
         
-        # Ensure master bucket exists
+        # Ensure the master bucket exists with retry
+        self.ensure_bucket_exists(self.master_bucket)
+    
+    def ensure_bucket_exists(self, bucket_name, max_retries=5):
+        """Ensure bucket exists with retry logic"""
         try:
-            self.create_bucket(self.master_bucket, use_existing=True)
-        except Exception as e:
-            print(f"Error creating master bucket: {str(e)}")
+            self.s3_client.head_bucket(Bucket=bucket_name)
+            print(f"Bucket {bucket_name} exists")
+            return True
+        except ClientError as e:
+            if e.response['Error']['Code'] == '404' or e.response['Error']['Code'] == 'NoSuchBucket':
+                print(f"Bucket {bucket_name} does not exist, creating...")
+                
+                # Try to create with retries
+                for attempt in range(max_retries):
+                    try:
+                        region = os.getenv('AWS_REGION', 'us-west-2')
+                        if region == 'us-east-1':
+                            self.s3_client.create_bucket(Bucket=bucket_name)
+                        else:
+                            location = {'LocationConstraint': region}
+                            self.s3_client.create_bucket(
+                                Bucket=bucket_name,
+                                CreateBucketConfiguration=location
+                            )
+                        print(f"Bucket {bucket_name} created successfully")
+                        return True
+                    except ClientError as create_error:
+                        if create_error.response['Error']['Code'] == 'OperationAborted':
+                            wait_time = 2 ** attempt  # Exponential backoff
+                            print(f"Bucket creation conflict, retrying in {wait_time} seconds...")
+                            time.sleep(wait_time)
+                        else:
+                            print(f"Error creating bucket: {str(create_error)}")
+                            raise
+                
+                # If we get here, all retries failed
+                print(f"Failed to create bucket after {max_retries} attempts")
+                raise Exception(f"Failed to create bucket {bucket_name}")
+            else:
+                print(f"Error checking bucket: {str(e)}")
+                raise
     
     def create_bucket(self, bucket_name, use_existing=True):
         """Create a new S3 bucket or use existing"""
@@ -135,3 +173,17 @@ class S3Service:
                 return False
             else:
                 raise 
+
+    def ensure_required_folders(self):
+        """Ensure that required folders exist in the bucket"""
+        required_folders = ["metadata", "documents"]
+        
+        for folder in required_folders:
+            try:
+                self.s3_client.put_object(
+                    Bucket=self.master_bucket,
+                    Key=f"{folder}/"
+                )
+                print(f"Ensured {folder}/ folder exists")
+            except Exception as e:
+                print(f"Error ensuring {folder}/ folder exists: {str(e)}") 

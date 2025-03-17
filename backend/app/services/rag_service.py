@@ -3,13 +3,13 @@ import os
 from typing import List, Dict, Any
 from openai import OpenAI
 
-from app.services.embedding_service import EmbeddingService
+from app.services.vector_db_service import VectorDBService
 from app.services.s3_service import S3Service
 
 class RAGService:
     def __init__(self):
         self.s3_service = S3Service()
-        self.embedding_service = EmbeddingService()
+        self.vector_db_service = VectorDBService()
         self.metadata_folder = "metadata"
         self.api_key = os.getenv('OPENAI_API_KEY')
         if not self.api_key:
@@ -20,49 +20,19 @@ class RAGService:
     
     def answer_question(self, question: str, doc_ids: List[str], model: str = "gpt-3.5-turbo") -> str:
         """Answer a question using RAG approach with the specified documents and model"""
-        # Get all chunks from the specified documents
-        all_chunks = []
-        all_embeddings = []
+        # Search for relevant chunks in the vector database
+        search_results = self.vector_db_service.similarity_search(
+            query=question,
+            top_k=5,
+            filter_doc_ids=doc_ids
+        )
         
-        for doc_id in doc_ids:
-            try:
-                # Get document metadata
-                metadata_obj = self.s3_service.s3_client.get_object(
-                    Bucket=self.s3_service.master_bucket,
-                    Key=f"{self.metadata_folder}/{doc_id}.json"
-                )
-                metadata = json.loads(metadata_obj['Body'].read().decode('utf-8'))
-                document_folder = metadata.get('folder')
-                
-                if document_folder:
-                    # List all chunk files for this document
-                    response = self.s3_service.s3_client.list_objects_v2(
-                        Bucket=self.s3_service.master_bucket,
-                        Prefix=f"{document_folder}/chunk_"
-                    )
-                    
-                    if 'Contents' in response:
-                        for obj in response['Contents']:
-                            # Get chunk data
-                            chunk_obj = self.s3_service.s3_client.get_object(
-                                Bucket=self.s3_service.master_bucket,
-                                Key=obj['Key']
-                            )
-                            chunk_data = json.loads(chunk_obj['Body'].read().decode('utf-8'))
-                            
-                            all_chunks.append(chunk_data['text'])
-                            all_embeddings.append(chunk_data['embedding'])
-            except Exception as e:
-                print(f"Error loading chunks for {doc_id}: {str(e)}")
-        
-        if not all_chunks:
+        if not search_results:
             return "No document content found to answer the question."
         
-        # Find most relevant chunks
-        top_indices = self.embedding_service.similarity_search(question, all_embeddings)
-        
-        # Build context from top chunks
-        context = "\n\n".join([all_chunks[i] for i in top_indices])
+        # Build context from search results
+        context_chunks = [result["text"] for result in search_results]
+        context = "\n\n".join(context_chunks)
         
         # Use OpenAI to generate an answer
         if not self.client:

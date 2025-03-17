@@ -5,12 +5,12 @@ from io import BytesIO
 from typing import List, Dict, Any, Optional
 
 from app.services.s3_service import S3Service
-from app.services.embedding_service import EmbeddingService
+from app.services.vector_db_service import VectorDBService
 
 class DocumentService:
     def __init__(self, s3_service: S3Service):
         self.s3_service = s3_service
-        self.embedding_service = EmbeddingService()
+        self.vector_db_service = VectorDBService()
         self.metadata_folder = "metadata"
         
         # Ensure metadata folder exists
@@ -32,7 +32,8 @@ class DocumentService:
         1. Extract text
         2. Split into chunks
         3. Generate embeddings
-        4. Store metadata
+        4. Store in vector database
+        5. Store metadata
         """
         # Create a folder for this document
         document_folder = f"documents/{doc_id}"
@@ -55,21 +56,6 @@ class DocumentService:
         # Split text into chunks
         chunks = self._split_text(text)
         
-        # Generate embeddings for each chunk
-        embeddings = self.embedding_service.generate_embeddings(chunks)
-        
-        # Store chunks and embeddings
-        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-            chunk_data = {
-                "text": chunk,
-                "embedding": embedding
-            }
-            self.s3_service.upload_file(
-                document_folder,
-                f"chunk_{i}.json",
-                json.dumps(chunk_data).encode('utf-8')
-            )
-        
         # Store metadata
         metadata = {
             "id": doc_id,
@@ -81,6 +67,10 @@ class DocumentService:
             "file_key": file_key
         }
         
+        # Store chunks in vector database
+        self.vector_db_service.store_document_chunks(doc_id, chunks, metadata)
+        
+        # Store metadata in S3
         self.s3_service.upload_file(
             self.metadata_folder,
             f"{doc_id}.json",
@@ -95,34 +85,52 @@ class DocumentService:
             "s3_url": s3_url
         }
     
-    def _extract_text_from_pdf(self, file_buffer):
+    def _extract_text_from_pdf(self, file_stream: BytesIO) -> str:
         """Extract text from a PDF file"""
         text = ""
         try:
-            pdf_document = fitz.open(stream=file_buffer.read(), filetype="pdf")
+            pdf_document = fitz.open(stream=file_stream, filetype="pdf")
             for page_num in range(len(pdf_document)):
                 page = pdf_document.load_page(page_num)
                 text += page.get_text()
             pdf_document.close()
         except Exception as e:
-            text = f"Error extracting text from PDF: {str(e)}"
+            print(f"Error extracting text from PDF: {str(e)}")
+            text = f"Error extracting text: {str(e)}"
         
         return text
     
-    def _split_text(self, text, chunk_size=1000, overlap=100):
+    def _split_text(self, text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
         """Split text into overlapping chunks"""
         chunks = []
         if len(text) <= chunk_size:
             chunks.append(text)
         else:
-            for i in range(0, len(text), chunk_size - overlap):
-                chunk = text[i:i + chunk_size]
-                chunks.append(chunk)
+            start = 0
+            while start < len(text):
+                end = start + chunk_size
+                if end > len(text):
+                    end = len(text)
+                
+                # Try to find a good breaking point (newline or space)
+                if end < len(text):
+                    # Look for newline first
+                    newline_pos = text.rfind('\n', start, end)
+                    if newline_pos > start + chunk_size // 2:
+                        end = newline_pos + 1
+                    else:
+                        # Look for space
+                        space_pos = text.rfind(' ', start, end)
+                        if space_pos > start + chunk_size // 2:
+                            end = space_pos + 1
+                
+                chunks.append(text[start:end])
+                start = end - overlap
         
         return chunks
     
     def list_documents(self) -> List[Dict[str, Any]]:
-        """List all documents"""
+        """List all available documents"""
         documents = []
         
         try:
@@ -135,8 +143,8 @@ class DocumentService:
             if 'Contents' in response:
                 for obj in response['Contents']:
                     if obj['Key'].endswith('.json'):
-                        # Get metadata for this document
                         try:
+                            # Get metadata
                             metadata_obj = self.s3_service.s3_client.get_object(
                                 Bucket=self.s3_service.master_bucket,
                                 Key=obj['Key']
@@ -178,6 +186,9 @@ class DocumentService:
                     Bucket=self.s3_service.master_bucket,
                     Key=f"{self.metadata_folder}/{doc_id}.json"
                 )
+                
+                # Delete from vector database
+                self.vector_db_service.delete_document(doc_id)
                 
                 return True
             except Exception as e:
