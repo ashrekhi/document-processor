@@ -22,6 +22,9 @@ import {
 import { Add as AddIcon, Delete as DeleteIcon, Folder as FolderIcon } from '@mui/icons-material';
 import { getFolders, createFolder, deleteFolder } from '../services/api';
 
+// Define core folders that cannot be deleted
+const CORE_FOLDERS = ['metadata', 'documents'];
+
 function FolderManagement() {
   const [folders, setFolders] = useState([]);
   const [masterBucket, setMasterBucket] = useState('');
@@ -80,6 +83,12 @@ function FolderManagement() {
   };
 
   const handleDeleteClick = (folder) => {
+    // Check if this is a core folder
+    if (CORE_FOLDERS.includes(folder)) {
+      setError(`The "${folder}" folder is a system folder and cannot be deleted.`);
+      return;
+    }
+    
     setFolderToDelete(folder);
     setDeleteDialogOpen(true);
   };
@@ -190,6 +199,8 @@ function FolderManagement() {
                       edge="end"
                       color="error"
                       onClick={() => handleDeleteClick(folder)}
+                      disabled={CORE_FOLDERS.includes(folder)}
+                      sx={CORE_FOLDERS.includes(folder) ? { color: 'rgba(0, 0, 0, 0.26)' } : {}}
                     >
                       <DeleteIcon />
                     </IconButton>

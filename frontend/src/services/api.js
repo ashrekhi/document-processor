@@ -25,26 +25,23 @@ api.interceptors.response.use(
   }
 );
 
-export const uploadDocument = async (file, sourceName, description) => {
+export const uploadDocument = async (file, sourceName, folder, description = '') => {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('source_name', sourceName);
+  formData.append('folder', folder);
   
   if (description) {
     formData.append('description', description);
   }
   
-  try {
-    const response = await api.post('/documents/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Upload document error details:', error);
-    throw error.response?.data?.detail || error.message || 'Error uploading document';
-  }
+  const response = await api.post('/documents/upload', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  
+  return response.data;
 };
 
 export const listDocuments = async () => {

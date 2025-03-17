@@ -1,24 +1,28 @@
 from pydantic import BaseModel
-from typing import List, Optional, Dict
+from typing import List, Optional
 
 class DocumentResponse(BaseModel):
     id: str
     filename: str
     source: str
     description: Optional[str] = None
-    s3_url: str
+    s3_url: Optional[str] = None
+    folder: Optional[str] = None
+    created_at: Optional[str] = None
 
 class QuestionRequest(BaseModel):
     question: str
-    document_ids: List[str]
-    model: Optional[str] = "gpt-3.5-turbo"
+    doc_ids: Optional[List[str]] = None
+    folder: Optional[str] = None
+    model: Optional[str] = "gpt-4"
+    document_ids: Optional[List[str]] = None  # For backward compatibility
 
 class QuestionResponse(BaseModel):
     question: str
     answer: str
-    document_ids: List[str]
-    model: Optional[str] = "gpt-3.5-turbo"
+    document_ids: Optional[List[str]] = None
+    model: Optional[str] = "gpt-4"
 
 class FolderInfo(BaseModel):
-    master_bucket: str
-    folders: List[str] 
+    name: str
+    s3_url: str 

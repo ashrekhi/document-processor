@@ -3,6 +3,7 @@ import os
 import time
 from io import BytesIO
 from botocore.exceptions import ClientError
+import json
 
 class S3Service:
     def __init__(self):
@@ -13,6 +14,7 @@ class S3Service:
             region_name=os.getenv('AWS_REGION', 'us-west-2')
         )
         self.master_bucket = os.getenv('METADATA_BUCKET', 'doc-processor-metadata')
+        self.metadata_folder = "metadata"
         
         # Ensure the master bucket exists with retry
         self.ensure_bucket_exists(self.master_bucket)
@@ -121,11 +123,49 @@ class S3Service:
             )
             
             if 'Contents' in response:
+                # Delete all objects in the folder
                 for obj in response['Contents']:
                     self.s3_client.delete_object(
                         Bucket=self.master_bucket,
                         Key=obj['Key']
                     )
+                
+                # Also delete any metadata for documents in this folder
+                metadata_response = self.s3_client.list_objects_v2(
+                    Bucket=self.master_bucket,
+                    Prefix=f"{self.metadata_folder}/"
+                )
+                
+                if 'Contents' in metadata_response:
+                    for obj in metadata_response['Contents']:
+                        if obj['Key'].endswith('.json'):
+                            try:
+                                # Get metadata
+                                metadata_obj = self.s3_client.get_object(
+                                    Bucket=self.master_bucket,
+                                    Key=obj['Key']
+                                )
+                                metadata = json.loads(metadata_obj['Body'].read().decode('utf-8'))
+                                
+                                # If this document is in the folder being deleted, delete its metadata
+                                if metadata.get('folder') == folder_name:
+                                    # Delete metadata file
+                                    self.s3_client.delete_object(
+                                        Bucket=self.master_bucket,
+                                        Key=obj['Key']
+                                    )
+                                    
+                                    # Try to delete from vector database if possible
+                                    doc_id = metadata.get('id')
+                                    if doc_id:
+                                        try:
+                                            from app.services.vector_db_service import VectorDBService
+                                            vector_db = VectorDBService()
+                                            vector_db.delete_document(doc_id)
+                                        except Exception as ve:
+                                            print(f"Error deleting from vector database: {str(ve)}")
+                            except Exception as e:
+                                print(f"Error processing metadata during folder deletion: {str(e)}")
             
             return True
         except Exception as e:
@@ -186,4 +226,19 @@ class S3Service:
                 )
                 print(f"Ensured {folder}/ folder exists")
             except Exception as e:
-                print(f"Error ensuring {folder}/ folder exists: {str(e)}") 
+                print(f"Error ensuring {folder}/ folder exists: {str(e)}")
+
+    def upload_file_content(self, folder: str, filename: str, content: bytes) -> bool:
+        """Upload file content to S3"""
+        try:
+            key = f"{folder}/{filename}"
+            self.s3_client.put_object(
+                Bucket=self.master_bucket,
+                Key=key,
+                Body=content
+            )
+            print(f"Uploaded file content to {key}")
+            return True
+        except Exception as e:
+            print(f"Error uploading file content: {str(e)}")
+            return False 

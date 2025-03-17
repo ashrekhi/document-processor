@@ -4,14 +4,29 @@ from typing import List, Optional
 import uuid
 import os
 from dotenv import load_dotenv
+from app.routers import documents, folders, questions
+from app.services.s3_service import S3Service
+import pathlib
+from fastapi.responses import JSONResponse
 
 # Import services after FastAPI initialization
-from app.services.s3_service import S3Service
 from app.services.document_service import DocumentService
 from app.services.rag_service import RAGService
 from app.models.models import DocumentResponse, QuestionRequest, QuestionResponse, FolderInfo
 
-load_dotenv()
+# Use absolute path to .env file
+env_path = "/Users/arekhi/Documents/GitHub/document-processor/.env"
+print(f"Looking for .env file at: {env_path}")
+
+# Load environment variables from the specified path
+load_dotenv(dotenv_path=env_path)
+
+# Check if environment variables are loaded
+openai_api_key = os.getenv('OPENAI_API_KEY')
+pinecone_api_key = os.getenv('PINECONE_API_KEY')
+
+print(f"OPENAI_API_KEY loaded: {'Yes' if openai_api_key else 'No'}")
+print(f"PINECONE_API_KEY loaded: {'Yes' if pinecone_api_key else 'No'}")
 
 app = FastAPI(title="Document Processor API")
 
@@ -26,8 +41,18 @@ app.add_middleware(
 
 # Initialize services
 s3_service = S3Service()
+s3_service.ensure_required_folders()
 document_service = DocumentService(s3_service)
 rag_service = RAGService()
+
+# Include routers
+app.include_router(documents.router, prefix="/documents", tags=["documents"])
+app.include_router(folders.router, prefix="/folders", tags=["folders"])
+app.include_router(questions.router, prefix="/ask", tags=["questions"])
+
+@app.get("/")
+def read_root():
+    return {"message": "Document Processor API"}
 
 @app.post("/documents/upload", response_model=DocumentResponse)
 async def upload_document(
@@ -39,20 +64,30 @@ async def upload_document(
     Upload a document to the master bucket and process it for RAG.
     """
     try:
-        # Generate a unique ID for the document
-        doc_id = str(uuid.uuid4())
+        print(f"UPLOAD ENDPOINT: Starting upload for file={file.filename}, source_name={source_name}, description={description}")
         
         # Read file content
         content = await file.read()
+        print(f"UPLOAD ENDPOINT: Read {len(content)} bytes from file")
         
-        # Process document for RAG
-        document_info = document_service.process_document(
-            doc_id=doc_id,
+        # Process document for RAG (let the method generate the doc_id)
+        print(f"UPLOAD ENDPOINT: Calling process_document with filename={file.filename}, content_length={len(content)}, folder={source_name}")
+        doc_id = document_service.process_document(
             filename=file.filename,
             content=content,
-            source_name=source_name,
-            description=description
+            folder=source_name  # Use source_name as folder
         )
+        print(f"UPLOAD ENDPOINT: process_document returned doc_id={doc_id}")
+        
+        # Get the document info
+        document_info = {
+            "id": doc_id,
+            "filename": file.filename,
+            "source": source_name,
+            "description": description,
+            "s3_url": f"s3://{s3_service.master_bucket}/{source_name}/{doc_id}_{file.filename}"
+        }
+        print(f"UPLOAD ENDPOINT: Created document_info={document_info}")
         
         return DocumentResponse(
             id=doc_id,
@@ -63,6 +98,9 @@ async def upload_document(
         )
     
     except Exception as e:
+        print(f"UPLOAD ENDPOINT ERROR: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error uploading document: {str(e)}")
 
 @app.get("/documents", response_model=List[DocumentResponse])
@@ -139,6 +177,49 @@ async def delete_folder(folder_name: str):
         return {"message": f"Folder {folder_name} deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting folder: {str(e)}")
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    """Global exception handler to capture more details about errors"""
+    import traceback
+    error_details = {
+        "error": str(exc),
+        "type": type(exc).__name__,
+        "path": request.url.path,
+        "method": request.method,
+        "traceback": traceback.format_exc()
+    }
+    print(f"GLOBAL EXCEPTION HANDLER: {error_details}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Error: {str(exc)}"}
+    )
+
+@app.middleware("http")
+async def log_requests(request, call_next):
+    """Middleware to log all requests"""
+    print(f"REQUEST: {request.method} {request.url.path}")
+    try:
+        # For multipart/form-data requests (file uploads), don't try to decode the body
+        content_type = request.headers.get("content-type", "")
+        if content_type and "multipart/form-data" in content_type:
+            print(f"REQUEST BODY: [Binary data - multipart/form-data]")
+        else:
+            # For other requests, try to decode the body as UTF-8
+            body = await request.body()
+            if body:
+                try:
+                    print(f"REQUEST BODY: {body.decode()}")
+                except UnicodeDecodeError:
+                    print(f"REQUEST BODY: [Binary data - {len(body)} bytes]")
+    except Exception as e:
+        print(f"Error reading request body: {str(e)}")
+    
+    # Process the request
+    response = await call_next(request)
+    
+    print(f"RESPONSE: {response.status_code}")
+    return response
 
 if __name__ == "__main__":
     import uvicorn

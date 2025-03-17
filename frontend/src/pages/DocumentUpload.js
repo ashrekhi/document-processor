@@ -8,71 +8,90 @@ import {
   Paper,
   CircularProgress,
   Alert,
-  AlertTitle,
-  MenuItem,
   FormControl,
   InputLabel,
   Select,
-  FormHelperText,
+  MenuItem,
 } from '@mui/material';
-import { CloudUpload as UploadIcon, Folder as FolderIcon } from '@mui/icons-material';
+import { CloudUpload as UploadIcon } from '@mui/icons-material';
 import { uploadDocument, getFolders } from '../services/api';
+
+// Define core folders that should be hidden from the UI
+const CORE_FOLDERS = ['metadata', 'documents'];
 
 function DocumentUpload() {
   const navigate = useNavigate();
   const [file, setFile] = useState(null);
-  const [sourceName, setSourceName] = useState('');
+  const [fileName, setFileName] = useState('');
+  const [folder, setFolder] = useState('');
   const [description, setDescription] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
   const [folders, setFolders] = useState([]);
-  const [foldersLoading, setFoldersLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   useEffect(() => {
-    const fetchFolders = async () => {
-      setFoldersLoading(true);
-      try {
-        const data = await getFolders();
-        setFolders(data.folders || []);
-      } catch (error) {
-        console.error('Error fetching folders:', error);
-      } finally {
-        setFoldersLoading(false);
-      }
-    };
-
     fetchFolders();
   }, []);
 
-  const handleFileChange = (event) => {
-    setFile(event.target.files[0]);
+  const fetchFolders = async () => {
+    setLoading(true);
+    try {
+      const data = await getFolders();
+      // Filter out core folders that should be hidden
+      const filteredFolders = (data.folders || []).filter(
+        folder => !CORE_FOLDERS.includes(folder)
+      );
+      setFolders(filteredFolders);
+      
+      // If there's at least one folder, select it by default
+      if (filteredFolders.length > 0 && !folder) {
+        setFolder(filteredFolders[0]);
+      }
+    } catch (error) {
+      console.error('Error fetching folders:', error);
+      setError('Failed to load folders. Please try again later.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
+  const handleFileChange = (e) => {
+    const selectedFile = e.target.files[0];
+    if (selectedFile) {
+      setFile(selectedFile);
+      setFileName(selectedFile.name);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     
     if (!file) {
       setError('Please select a file to upload');
       return;
     }
     
-    if (!sourceName) {
+    if (!folder) {
       setError('Please select a folder');
       return;
     }
     
-    setLoading(true);
+    setUploading(true);
     setError('');
+    setSuccess('');
     
     try {
-      await uploadDocument(file, sourceName, description);
-      setSuccess(true);
+      // Use the folder name as the source name
+      await uploadDocument(file, folder, folder, description);
+      setSuccess(`Document "${fileName}" uploaded successfully to ${folder}`);
       
       // Reset form
       setFile(null);
-      setSourceName('');
+      setFileName('');
       setDescription('');
+      document.getElementById('file-upload').value = '';
       
       // Redirect to documents list after 2 seconds
       setTimeout(() => {
@@ -80,9 +99,9 @@ function DocumentUpload() {
       }, 2000);
     } catch (error) {
       console.error('Error uploading document:', error);
-      setError(error.response?.data?.detail || 'Error uploading document');
+      setError(typeof error === 'string' ? error : 'Failed to upload document');
     } finally {
-      setLoading(false);
+      setUploading(false);
     }
   };
 
@@ -93,15 +112,14 @@ function DocumentUpload() {
       </Typography>
       
       {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
+        <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>
           {error}
         </Alert>
       )}
       
       {success && (
-        <Alert severity="success" sx={{ mb: 3 }}>
-          <AlertTitle>Success</AlertTitle>
-          Document uploaded successfully! Redirecting to documents list...
+        <Alert severity="success" sx={{ mb: 3 }} onClose={() => setSuccess('')}>
+          {success}
         </Alert>
       )}
       
@@ -111,49 +129,45 @@ function DocumentUpload() {
             <Button
               variant="contained"
               component="label"
+              startIcon={<UploadIcon />}
               fullWidth
-              sx={{ p: 2, border: '1px dashed grey', bgcolor: 'background.paper' }}
             >
-              {file ? file.name : 'Select File'}
+              Select File
               <input
+                id="file-upload"
                 type="file"
+                accept=".pdf,.txt,.md"
                 hidden
                 onChange={handleFileChange}
-                accept=".pdf,.txt,.md"
               />
             </Button>
-            <Typography variant="caption" color="text.secondary">
-              Supported file types: PDF, TXT, MD
-            </Typography>
+            {fileName && (
+              <Typography variant="body2" sx={{ mt: 1 }}>
+                Selected file: {fileName}
+              </Typography>
+            )}
           </Box>
           
-          <FormControl fullWidth margin="normal" required>
-            <InputLabel id="folder-select-label">Folder</InputLabel>
+          <FormControl fullWidth margin="normal">
+            <InputLabel>Folder</InputLabel>
             <Select
-              labelId="folder-select-label"
-              value={sourceName}
-              onChange={(e) => setSourceName(e.target.value)}
-              label="Folder"
-              disabled={foldersLoading}
-              startAdornment={<FolderIcon sx={{ mr: 1, ml: -0.5 }} />}
+              value={folder}
+              onChange={(e) => setFolder(e.target.value)}
+              required
+              disabled={loading || folders.length === 0}
             >
-              {foldersLoading ? (
+              {loading ? (
                 <MenuItem disabled>Loading folders...</MenuItem>
               ) : folders.length === 0 ? (
                 <MenuItem disabled>No folders available</MenuItem>
               ) : (
-                folders.map((folder) => (
-                  <MenuItem key={folder} value={folder}>
-                    {folder}
+                folders.map((f) => (
+                  <MenuItem key={f} value={f}>
+                    {f}
                   </MenuItem>
                 ))
               )}
             </Select>
-            <FormHelperText>
-              {folders.length === 0 && !foldersLoading ? 
-                "Please create a folder in Folder Management first" : 
-                "Select a folder to store this document"}
-            </FormHelperText>
           </FormControl>
           
           <TextField
@@ -161,31 +175,22 @@ function DocumentUpload() {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             fullWidth
-            margin="normal"
             multiline
             rows={3}
+            margin="normal"
             helperText="Enter a description for this document"
           />
           
-          <Box sx={{ mt: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            {folders.length === 0 && !foldersLoading && (
-              <Button
-                variant="outlined"
-                color="primary"
-                onClick={() => navigate('/folders')}
-              >
-                Create Folder
-              </Button>
-            )}
-            <Box sx={{ flex: 1 }} />
+          <Box sx={{ mt: 3 }}>
             <Button
               type="submit"
               variant="contained"
               color="primary"
-              disabled={loading || folders.length === 0}
-              startIcon={loading ? <CircularProgress size={20} /> : <UploadIcon />}
+              disabled={uploading || !file || !folder}
+              fullWidth
+              startIcon={uploading && <CircularProgress size={20} />}
             >
-              {loading ? 'Uploading...' : 'Upload Document'}
+              {uploading ? 'Uploading...' : 'Upload Document'}
             </Button>
           </Box>
         </form>
