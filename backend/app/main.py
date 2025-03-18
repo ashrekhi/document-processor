@@ -16,12 +16,8 @@ from app.services.document_service import DocumentService
 from app.services.rag_service import RAGService
 from app.models.models import DocumentResponse, QuestionRequest, QuestionResponse, FolderInfo
 
-# Use absolute path to .env file
-env_path = "/Users/arekhi/Documents/GitHub/document-processor/.env"
-print(f"Looking for .env file at: {env_path}")
-
-# Load environment variables from the specified path
-load_dotenv(dotenv_path=env_path)
+# Load environment variables - for local development and production
+load_dotenv()
 
 # Check if environment variables are loaded
 openai_api_key = os.getenv('OPENAI_API_KEY')
@@ -32,10 +28,13 @@ print(f"PINECONE_API_KEY loaded: {'Yes' if pinecone_api_key else 'No'}")
 
 app = FastAPI(title="Document Processor API")
 
-# Configure CORS
+# Configure CORS - extract allowed origins from environment variables or use default
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+print(f"CORS allowed origins: {allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
