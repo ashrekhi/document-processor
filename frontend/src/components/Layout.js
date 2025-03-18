@@ -173,6 +173,9 @@ function Layout({ children }) {
             size="small"
             variant="contained"
             fullWidth
+            href="https://docs.google.com/document/d/1yAtbJYuY8rN-bRHOhll_4227uosYOAPrbbbJhqHhDwk/edit?tab=t.0"
+            target="_blank"
+            rel="noopener noreferrer"
             sx={{
               bgcolor: theme.palette.primary.main,
               '&:hover': {
