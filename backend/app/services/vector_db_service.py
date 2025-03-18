@@ -115,8 +115,12 @@ class VectorDBService:
             
             # Initialize an OpenAI API client for embeddings
             print(f"Creating embedding service...")
-            self.embedding_service = EmbeddingService(self.openai_api_key)
+            self.embedding_service = EmbeddingService()
             print(f"Successfully created embedding service")
+            
+            # Initialize OpenAI client
+            self.openai_client = OpenAI(api_key=self.openai_api_key)
+            print(f"Successfully initialized OpenAI client")
             
             # Set the index_name to use
             default_index = "document-processor"
@@ -835,4 +839,4 @@ class VectorDBService:
             print(f"VECTOR CROSS-NAMESPACE SEARCH ERROR ({error_type}): {str(e)}")
             import traceback
             print(f"VECTOR CROSS-NAMESPACE SEARCH ERROR: Full error details:\n{traceback.format_exc()}")
-            raise ValueError(f"Cross-namespace search failed: {str(e)}") 
+            raise ValueError(f"Cross-namespace search failed: {str(e)}")

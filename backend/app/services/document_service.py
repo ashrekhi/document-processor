@@ -404,161 +404,122 @@ class DocumentService:
     
     def ask_question_in_folder(self, question: str, folder: str, model: str = "gpt-3.5-turbo") -> str:
         """Ask a question about all documents in a folder"""
-        print(f"{'='*80}")
-        print(f"DOCUMENT SERVICE: Starting folder-based question answering at {time.strftime('%H:%M:%S')}")
-        print(f"DOCUMENT SERVICE: Question: '{question}'")
-        print(f"DOCUMENT SERVICE: Folder: '{folder}'")
         print(f"DOCUMENT SERVICE: Model: '{model}'")
-        
-        # Validate inputs
-        if not question or question.strip() == "":
-            error_msg = "Empty question provided"
-            print(f"DOCUMENT SERVICE ERROR: {error_msg}")
-            return f"Error: {error_msg}. Please provide a valid question."
-            
-        if not folder or folder.strip() == "":
-            error_msg = "Empty folder path provided"
-            print(f"DOCUMENT SERVICE ERROR: {error_msg}")
-            return f"Error: {error_msg}. Please provide a valid folder."
-            
-        if not model or model.strip() == "":
-            model = "gpt-3.5-turbo"
-            print(f"DOCUMENT SERVICE: Empty model specified, defaulting to {model}")
+        print(f"DOCUMENT SERVICE: Checking for documents in folder '{folder}'")
         
         try:
-            # Verify folder exists and has documents
-            print(f"DOCUMENT SERVICE: Checking for documents in folder '{folder}'")
-            try:
-                folder_documents = self.get_documents_in_folder(folder)
-                doc_count = len(folder_documents)
-                print(f"DOCUMENT SERVICE: Found {doc_count} documents in folder '{folder}'")
-                
-                if doc_count == 0:
-                    error_msg = f"No documents found in folder '{folder}'"
-                    print(f"DOCUMENT SERVICE ERROR: {error_msg}")
-                    return f"Error: {error_msg}. Please upload documents to this folder first or select a different folder."
-                    
-            except Exception as folder_error:
-                error_type = type(folder_error).__name__
-                print(f"DOCUMENT SERVICE ERROR: {error_type} while getting documents in folder: {str(folder_error)}")
-                return f"Error retrieving documents from folder '{folder}': {str(folder_error)}"
+            # Get documents in the folder
+            documents = self.get_documents_in_folder(folder)
+            print(f"DOCUMENT SERVICE: Found {len(documents)} documents in folder '{folder}'")
             
-            # Direct search in the namespace matching the folder name
+            if not documents:
+                return f"No documents found in folder '{folder}'. Please upload documents to this folder first."
+            
             print(f"DOCUMENT SERVICE: Searching directly in namespace '{folder}'")
+            
             try:
-                start_time = time.time()
+                stats = self.vector_db_service.pinecone_index.describe_index_stats()
+                print(f"DOCUMENT SERVICE: Index stats: {stats}")
                 
-                # Get index stats to verify vectors exist in this namespace
-                try:
-                    stats = self.vector_db_service.pinecone_index.describe_index_stats()
-                    print(f"DOCUMENT SERVICE: Index stats: {stats}")
-                    
-                    # Check if the namespace exists and has vectors
-                    namespaces = stats.get("namespaces", {})
-                    if folder not in namespaces:
-                        print(f"DOCUMENT SERVICE WARNING: Namespace '{folder}' not found in index")
-                        return f"No document vectors found for folder '{folder}'. Please ensure documents have been properly processed."
-                    
-                    vector_count = namespaces[folder].get("vector_count", 0)
-                    print(f"DOCUMENT SERVICE: Namespace '{folder}' has {vector_count} vectors")
-                    
-                    if vector_count == 0:
-                        print(f"DOCUMENT SERVICE WARNING: Namespace '{folder}' exists but has no vectors")
-                        return f"The folder '{folder}' exists but doesn't contain any document vectors. Please process documents in this folder first."
-                except Exception as stats_error:
-                    print(f"DOCUMENT SERVICE WARNING: Error getting index stats: {str(stats_error)}")
+                # Check if the namespace exists and has vectors
+                namespaces = stats.get("namespaces", {})
+                if folder not in namespaces:
+                    print(f"DOCUMENT SERVICE WARNING: Namespace '{folder}' not found in index")
+                    return f"No document vectors found for folder '{folder}'. Please ensure documents have been properly processed."
                 
-                # Search for relevant chunks directly in the namespace matching the folder
-                chunks = self.vector_db_service.search_similar_chunks(
-                    query=question,
-                    top_k=5,
-                    namespace=folder  # Explicitly use the folder name as namespace
-                )
+                vector_count = namespaces[folder].get("vector_count", 0)
+                print(f"DOCUMENT SERVICE: Namespace '{folder}' has {vector_count} vectors")
                 
-                search_time = time.time() - start_time
-                print(f"DOCUMENT SERVICE: Found {len(chunks)} relevant chunks in {search_time:.2f} seconds")
-                
-                # If no chunks found, return a clear message
-                if not chunks or len(chunks) == 0:
-                    print(f"DOCUMENT SERVICE WARNING: No relevant chunks found for query in namespace '{folder}'")
-                    return f"I couldn't find any relevant information in the documents in folder '{folder}' to answer your question. Please try rephrasing or asking about a different topic."
-                
-                # Log information about the chunks found
-                print(f"DOCUMENT SERVICE: Details of {len(chunks)} chunks:")
-                for i, chunk in enumerate(chunks):
-                    chunk_id = chunk.get('id', 'unknown')
-                    doc_id = chunk.get('doc_id', 'unknown')
-                    score = chunk.get('score', 'unknown')
-                    text_length = len(chunk.get('text', ''))
-                    print(f"  Chunk {i+1}: ID={chunk_id}, Doc ID={doc_id}, Score={score}, Text length={text_length}")
-                
-                # Construct context from chunks
-                context = ""
-                for chunk in chunks:
-                    chunk_text = chunk.get("text", "")
-                    if chunk_text:
-                        context += f"{chunk_text}\n\n"
-                
-                print(f"DOCUMENT SERVICE: Total context length: {len(context)} characters")
-                
-                # Create the prompt for OpenAI
-                prompt = f"""
-                You are an AI assistant that helps answer questions based on the provided document context.
-                Answer the following question based ONLY on the information provided in the context below.
-                If you can't find the answer in the context, say "I couldn't find information about that in the documents in folder '{folder}'."
-                Don't use prior knowledge. Be concise and to the point.
-                
-                Context:
-                {context}
-                
-                Question: {question}
-                
-                Answer:
-                """
-                
-                # Call OpenAI API
-                print(f"DOCUMENT SERVICE: Calling OpenAI at {time.strftime('%H:%M:%S')} with model {model}")
-                openai_start_time = time.time()
-                
-                if not hasattr(self.vector_db_service, 'openai_client') or self.vector_db_service.openai_client is None:
-                    print(f"DOCUMENT SERVICE ERROR: OpenAI client not initialized")
-                    return "Error: OpenAI API client not initialized. Please check your API key configuration."
-                
-                response = self.vector_db_service.openai_client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": "You are a helpful assistant that answers questions based on document context."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0,
-                    timeout=30  # 30 second timeout
-                )
-                
-                openai_time = time.time() - openai_start_time
-                print(f"DOCUMENT SERVICE: OpenAI API call completed in {openai_time:.2f} seconds")
-                
-                # Process the response
-                answer = response.choices[0].message.content
-                answer_length = len(answer) if answer else 0
-                print(f"DOCUMENT SERVICE: Received answer of length {answer_length} chars")
-                answer_preview = answer[:150].replace('\n', ' ') + '...' if len(answer) > 150 else answer
-                print(f"DOCUMENT SERVICE: Answer preview: '{answer_preview}'")
-                
-                return answer
-                
-            except Exception as search_error:
-                error_type = type(search_error).__name__
-                print(f"DOCUMENT SERVICE ERROR: {error_type} during search: {str(search_error)}")
-                import traceback
-                print(f"DOCUMENT SERVICE ERROR: Full error details:\n{traceback.format_exc()}")
-                return f"Error searching documents in folder '{folder}': {str(search_error)}"
+                if vector_count == 0:
+                    print(f"DOCUMENT SERVICE WARNING: Namespace '{folder}' exists but has no vectors")
+                    return f"The folder '{folder}' exists but doesn't contain any document vectors. Please process documents in this folder first."
+            except Exception as stats_error:
+                print(f"DOCUMENT SERVICE WARNING: Error getting index stats: {str(stats_error)}")
+            
+            # Search for relevant chunks directly in the namespace matching the folder
+            start_time = time.time()
+            chunks = self.vector_db_service.search_similar_chunks(
+                query=question,
+                top_k=5,
+                namespace=folder  # Explicitly use the folder name as namespace
+            )
+            
+            search_time = time.time() - start_time
+            print(f"DOCUMENT SERVICE: Found {len(chunks)} relevant chunks in {search_time:.2f} seconds")
+            
+            # If no chunks found, return a clear message
+            if not chunks or len(chunks) == 0:
+                print(f"DOCUMENT SERVICE WARNING: No relevant chunks found for query in namespace '{folder}'")
+                return f"I couldn't find any relevant information in the documents in folder '{folder}' to answer your question. Please try rephrasing or asking about a different topic."
+            
+            # Log information about the chunks found
+            print(f"DOCUMENT SERVICE: Details of {len(chunks)} chunks:")
+            for i, chunk in enumerate(chunks):
+                chunk_id = chunk.get('id', 'unknown')
+                doc_id = chunk.get('doc_id', 'unknown')
+                score = chunk.get('score', 'unknown')
+                text_length = len(chunk.get('text', ''))
+                print(f"  Chunk {i+1}: ID={chunk_id}, Doc ID={doc_id}, Score={score}, Text length={text_length}")
+            
+            # Construct context from chunks
+            context = ""
+            for chunk in chunks:
+                chunk_text = chunk.get("text", "")
+                if chunk_text:
+                    context += f"{chunk_text}\n\n"
+            
+            print(f"DOCUMENT SERVICE: Total context length: {len(context)} characters")
+            
+            # Create the prompt for OpenAI
+            prompt = f"""
+            You are an AI assistant that helps answer questions based on the provided document context.
+            Answer the following question based ONLY on the information provided in the context below.
+            If you can't find the answer in the context, say "I couldn't find information about that in the documents in folder '{folder}'."
+            Don't use prior knowledge. Be concise and to the point.
+            
+            Context:
+            {context}
+            
+            Question: {question}
+            
+            Answer:
+            """
+            
+            # Call OpenAI API
+            print(f"DOCUMENT SERVICE: Calling OpenAI at {time.strftime('%H:%M:%S')} with model {model}")
+            openai_start_time = time.time()
+            
+            if not hasattr(self.vector_db_service, 'openai_client') or self.vector_db_service.openai_client is None:
+                print(f"DOCUMENT SERVICE ERROR: OpenAI client not initialized")
+                return "Error: OpenAI API client not initialized. Please check your API key configuration."
+            
+            response = self.vector_db_service.openai_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that answers questions based on document context."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0,
+                timeout=30  # 30 second timeout
+            )
+            
+            openai_time = time.time() - openai_start_time
+            print(f"DOCUMENT SERVICE: OpenAI API call completed in {openai_time:.2f} seconds")
+            
+            # Process the response
+            answer = response.choices[0].message.content
+            answer_length = len(answer) if answer else 0
+            print(f"DOCUMENT SERVICE: Received answer of length {answer_length} chars")
+            answer_preview = answer[:150].replace('\n', ' ') + '...' if len(answer) > 150 else answer
+            print(f"DOCUMENT SERVICE: Answer preview: '{answer_preview}'")
+            
+            return answer
             
         except Exception as e:
-            error_type = type(e).__name__
-            print(f"DOCUMENT SERVICE ERROR: Unexpected {error_type} in ask_question_in_folder: {str(e)}")
+            print(f"DOCUMENT SERVICE ERROR: {str(e)}")
             import traceback
-            print(f"DOCUMENT SERVICE ERROR: Full error details:\n{traceback.format_exc()}")
-            return f"An unexpected error occurred while processing your question: {str(e)}"
+            traceback.print_exc()
+            return f"Error processing your question: {str(e)}"
     
     def get_documents_in_folder(self, folder: str) -> List[Dict[str, Any]]:
         """Get all documents in a folder - alias for get_documents_by_namespace"""

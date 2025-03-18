@@ -23,7 +23,7 @@ services:
       - key: PINECONE_CLOUD
         value: "aws"
       - key: PINECONE_REGION
-        value: "us-east-1-aws"
+        value: "us-east-1"
       - key: ALLOW_DEV_FALLBACK
         value: "true"
       - key: PORT

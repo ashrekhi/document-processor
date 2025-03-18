@@ -14,7 +14,9 @@ class EmbeddingService:
         
         # Get environment variables
         self.api_key = os.getenv('PINECONE_API_KEY')
-        self.environment = os.getenv('PINECONE_ENVIRONMENT', 'us-west1-gcp')
+        self.cloud = os.getenv('PINECONE_CLOUD', 'aws')
+        self.region = os.getenv('PINECONE_REGION', 'us-east-1')
+        self.environment = os.getenv('PINECONE_ENVIRONMENT')  # For backwards compatibility
         self.index_name = os.getenv('PINECONE_INDEX', 'radiant-documents')
         self.openai_api_key = os.getenv('OPENAI_API_KEY')
         
@@ -27,16 +29,16 @@ class EmbeddingService:
             self.openai_client = OpenAI(api_key=self.openai_api_key)
             self.openai_available = True
         
-        if not self.api_key or not self.environment:
-            self.logger.warning("Pinecone API key or environment not set. Using mock embeddings.")
+        if not self.api_key:
+            self.logger.warning("Pinecone API key not set. Using mock embeddings.")
             self.pinecone_available = False
             return
             
         # Initialize Pinecone with proper error handling
         try:
-            self.logger.info(f"Initializing Pinecone with environment: {self.environment}")
+            self.logger.info(f"Initializing Pinecone with cloud: {self.cloud}, region: {self.region}")
             # Initialize Pinecone with the newer client
-            pc = pinecone.Pinecone(api_key=self.api_key)
+            pc = pinecone.Pinecone(api_key=self.api_key, cloud=self.cloud)
             self.pinecone_available = True
             
             # Check if index exists and connect to it
@@ -53,7 +55,11 @@ class EmbeddingService:
                     pc.create_index(
                         name=self.index_name,
                         dimension=1536,  # dimension for text-embedding-ada-002
-                        metric="cosine"
+                        metric="cosine",
+                        spec=pinecone.ServerlessSpec(
+                            cloud=self.cloud,
+                            region=self.region
+                        )
                     )
                 
                 # Connect to the index with the newer client
