@@ -19,7 +19,7 @@ services:
       - key: PINECONE_API_KEY
         sync: false
       - key: PINECONE_INDEX
-        value: "document-processor"
+        value: "radiant-documents"
       - key: PINECONE_CLOUD
         value: "aws"
       - key: PINECONE_REGION
