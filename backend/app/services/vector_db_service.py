@@ -8,10 +8,35 @@ import time
 from datetime import datetime
 from dotenv import load_dotenv
 import pathlib
+import sys
 
 # Import the Pinecone client and our EmbeddingService
 try:
-    from pinecone import Pinecone, ServerlessSpec
+    print("Attempting to import Pinecone...")
+    print(f"Python version: {sys.version}")
+    print(f"Python path: {sys.path}")
+    
+    # Print the module search path to help debug import issues
+    for i, path in enumerate(sys.path):
+        print(f"Path {i}: {path}")
+    
+    # Try importing the package directly
+    import pinecone as pinecone_pkg
+    print(f"Pinecone package located at: {pinecone_pkg.__file__}")
+    print(f"Pinecone package version: {getattr(pinecone_pkg, '__version__', 'unknown')}")
+    print(f"Pinecone package contents: {dir(pinecone_pkg)}")
+    
+    # Check if Pinecone class exists in the module
+    if hasattr(pinecone_pkg, 'Pinecone'):
+        # Import directly from the module
+        Pinecone = pinecone_pkg.Pinecone
+        ServerlessSpec = pinecone_pkg.ServerlessSpec
+        print("Successfully imported Pinecone class from module")
+    else:
+        # Try the regular import which might work if the package structure is different
+        from pinecone import Pinecone, ServerlessSpec
+        print("Successfully imported Pinecone via from...import")
+        
     PINECONE_IMPORT_SUCCESS = True
     print("Successfully imported pinecone package")
     
@@ -25,6 +50,7 @@ try:
 except ImportError as e:
     print(f"WARNING: Failed to import from pinecone package due to ImportError: {str(e)}")
     print(f"This usually means the package is not installed or the wrong version is installed")
+    print(f"Import error details:\n{traceback.format_exc()}")
     import sys
     print(f"Python version: {sys.version}")
     print(f"Python path: {sys.path}")
@@ -55,6 +81,7 @@ except ImportError as e:
 except Exception as e:
     print(f"WARNING: Failed to import from pinecone package due to unexpected error: {str(e)}")
     print(f"Exception type: {type(e).__name__}")
+    print(f"Exception details:\n{traceback.format_exc()}")
     PINECONE_IMPORT_SUCCESS = False
     # Define a stub Pinecone class to avoid errors
     class Pinecone:

@@ -7,6 +7,9 @@ services:
     plan: free
     buildCommand: >
       cd backend &&
+      # Make sure we have the right version of pinecone globally as well
+      pip install --no-cache-dir "pinecone==2.2.2" &&
+      # Create and set up the virtual environment
       python -m venv clean_venv &&
       . clean_venv/bin/activate &&
       pip install --upgrade pip &&
@@ -18,8 +21,41 @@ services:
       pip install --no-cache-dir -r requirements.txt &&
       # Print diagnostics
       pip list | grep pinecone &&
-      python -c "import pinecone; print('Pinecone imported successfully'); print('Package version:', getattr(pinecone, '__version__', 'unknown')); print('Has Pinecone class:', hasattr(pinecone, 'Pinecone'))"
-    startCommand: cd backend && . clean_venv/bin/activate && gunicorn -k uvicorn.workers.UvicornWorker -w 1 app.main:app --bind 0.0.0.0:$PORT
+      python -c "
+import sys
+print('Python version:', sys.version)
+print('Python path:', sys.path)
+try:
+    import pinecone
+    print('Pinecone imported successfully')
+    print('Package version:', getattr(pinecone, '__version__', 'unknown'))
+    print('Has Pinecone class:', hasattr(pinecone, 'Pinecone'))
+    print('Package location:', pinecone.__file__)
+    print('dir(pinecone):', dir(pinecone))
+except Exception as e:
+    print('ERROR importing pinecone:', str(e))
+    import traceback
+    traceback.print_exc()
+"
+    startCommand: >
+      cd backend && 
+      echo "Starting application with virtual environment at $PWD/clean_venv" &&
+      . clean_venv/bin/activate &&
+      # Print diagnostics at startup
+      python -c "
+      import sys
+      print('STARTUP: Python version:', sys.version)
+      try:
+          import pinecone
+          print('STARTUP: Pinecone imported successfully')
+          print('STARTUP: Package version:', getattr(pinecone, '__version__', 'unknown'))
+          print('STARTUP: Pinecone class exists:', hasattr(pinecone, 'Pinecone'))
+          print('STARTUP: Package location:', pinecone.__file__)
+      except Exception as e:
+          print('STARTUP ERROR importing pinecone:', str(e))
+      " &&
+      # Start the application
+      gunicorn -k uvicorn.workers.UvicornWorker -w 1 app.main:app --bind 0.0.0.0:$PORT
     envVars:
       - key: OPENAI_API_KEY
         sync: false

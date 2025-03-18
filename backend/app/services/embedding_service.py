@@ -4,14 +4,34 @@ import numpy as np
 from openai import OpenAI
 import logging
 import time
+import sys
+import traceback
 
 # Import Pinecone with proper handling for import errors
 try:
+    print("EmbeddingService: Attempting to import Pinecone...")
+    
+    # Import the package directly first
+    import pinecone as pinecone_pkg
+    print(f"EmbeddingService: Pinecone package found at {pinecone_pkg.__file__}")
+    print(f"EmbeddingService: Pinecone version: {getattr(pinecone_pkg, '__version__', 'unknown')}")
+    
+    # Now try to import the specific classes
     from pinecone import Pinecone, ServerlessSpec
     PINECONE_IMPORT_SUCCESS = True
     print(f"EmbeddingService: Pinecone import succeeded")
+    
+    # Verify that the Pinecone class is actually available
+    if not hasattr(pinecone_pkg, 'Pinecone'):
+        print(f"EmbeddingService: WARNING - Pinecone module imported but Pinecone class not found!")
+        print(f"EmbeddingService: Available attributes: {dir(pinecone_pkg)}")
+        raise ImportError("Pinecone class not found in imported module")
+        
 except ImportError as e:
     print(f"EmbeddingService: WARNING - Pinecone import failed: {str(e)}")
+    print(f"EmbeddingService: Import error details:\n{traceback.format_exc()}")
+    print(f"EmbeddingService: Python version: {sys.version}")
+    print(f"EmbeddingService: Python path: {sys.path}")
     PINECONE_IMPORT_SUCCESS = False
     # Define stub classes for Pinecone
     class Pinecone:
