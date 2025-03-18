@@ -4,10 +4,12 @@ from typing import List, Optional
 import uuid
 import os
 from dotenv import load_dotenv
-from app.routers import documents, folders, questions
+from app.routers import documents, folders
 from app.services.s3_service import S3Service
 import pathlib
 from fastapi.responses import JSONResponse
+import time
+import re
 
 # Import services after FastAPI initialization
 from app.services.document_service import DocumentService
@@ -48,7 +50,6 @@ rag_service = RAGService()
 # Include routers
 app.include_router(documents.router, prefix="/documents", tags=["documents"])
 app.include_router(folders.router, prefix="/folders", tags=["folders"])
-app.include_router(questions.router, prefix="/ask", tags=["questions"])
 
 @app.get("/")
 def read_root():
@@ -125,26 +126,6 @@ async def delete_document(doc_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting document: {str(e)}")
 
-@app.post("/ask", response_model=QuestionResponse)
-async def ask_question(request: QuestionRequest):
-    """
-    Ask a question about the uploaded documents.
-    """
-    try:
-        answer = rag_service.answer_question(
-            question=request.question,
-            doc_ids=request.document_ids,
-            model=request.model
-        )
-        return QuestionResponse(
-            question=request.question,
-            answer=answer,
-            document_ids=request.document_ids,
-            model=request.model
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing question: {str(e)}")
-
 @app.get("/folders")
 async def get_folders():
     """
@@ -178,6 +159,88 @@ async def delete_folder(folder_name: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting folder: {str(e)}")
 
+@app.post("/ask", response_model=QuestionResponse, tags=["questions"])
+async def unified_ask_question(request: QuestionRequest) -> QuestionResponse:
+    """Endpoint to ask a question about documents in a specific folder"""
+    # Start timer
+    start_time = time.time()
+    
+    # Print detailed request information
+    print(f"{'='*80}")
+    print(f"ENDPOINT /ask: Request received at {time.strftime('%H:%M:%S')}")
+    print(f"ENDPOINT /ask: Full request object: {request}")
+    print(f"ENDPOINT /ask: Question: '{request.question}'")
+    print(f"ENDPOINT /ask: Model: '{request.model}'")
+    print(f"ENDPOINT /ask: Folder: '{request.folder}'")
+    
+    # For backward compatibility, log document IDs if present
+    if hasattr(request, 'document_ids') and request.document_ids:
+        print(f"ENDPOINT /ask WARNING: Using deprecated 'document_ids' field. The system now operates on folder-based queries only.")
+    if hasattr(request, 'doc_ids') and request.doc_ids:
+        print(f"ENDPOINT /ask WARNING: Using deprecated 'doc_ids' field. The system now operates on folder-based queries only.")
+    
+    # Validate the request
+    if not request.question or request.question.strip() == "":
+        error_msg = "Question cannot be empty"
+        print(f"ENDPOINT /ask ERROR: {error_msg}")
+        return QuestionResponse(
+            question="Empty Question", 
+            answer=f"Error: {error_msg}",
+            model=request.model
+        )
+        
+    if not request.model or request.model.strip() == "":
+        request.model = "gpt-3.5-turbo"
+        print(f"ENDPOINT /ask: No model specified, defaulting to {request.model}")
+    
+    if not request.folder or request.folder.strip() == "":
+        error_msg = "Folder name cannot be empty"
+        print(f"ENDPOINT /ask ERROR: {error_msg}")
+        return QuestionResponse(
+            question=request.question,
+            answer=f"Error: {error_msg}. Please specify a folder to search in.",
+            model=request.model
+        )
+    
+    # Process folder-based question
+    try:
+        print(f"ENDPOINT /ask: Processing folder-based question for folder '{request.folder}'")
+        
+        # Call DocumentService
+        print(f"ENDPOINT /ask: Calling DocumentService at {time.strftime('%H:%M:%S')}")
+        answer = document_service.ask_question_in_folder(
+            request.question,
+            request.folder,
+            request.model
+        )
+        elapsed = time.time() - start_time
+        print(f"ENDPOINT /ask: DocumentService returned answer in {elapsed:.2f} seconds")
+        
+        # Preview the answer for logging
+        answer_preview = answer[:150].replace('\n', ' ') + '...' if len(answer) > 150 else answer
+        print(f"ENDPOINT /ask: Answer preview: '{answer_preview}'")
+        
+        return QuestionResponse(
+            question=request.question,
+            answer=answer,
+            model=request.model
+        )
+        
+    except Exception as e:
+        # Catch-all for unexpected errors
+        error_type = type(e).__name__
+        error_msg = f"Unexpected {error_type} while processing question: {str(e)}"
+        print(f"ENDPOINT /ask ERROR: {error_msg}")
+        import traceback
+        print(f"ENDPOINT /ask ERROR: Full error details:\n{traceback.format_exc()}")
+        elapsed = time.time() - start_time
+        print(f"ENDPOINT /ask ERROR: Request failed after {elapsed:.2f} seconds")
+        return QuestionResponse(
+            question=request.question,
+            answer=f"An unexpected error occurred: {str(e)}",
+            model=request.model
+        )
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     """Global exception handler to capture more details about errors"""
@@ -198,28 +261,24 @@ async def global_exception_handler(request, exc):
 @app.middleware("http")
 async def log_requests(request, call_next):
     """Middleware to log all requests"""
-    print(f"REQUEST: {request.method} {request.url.path}")
+    start_time = time.time()
+    request_id = str(uuid.uuid4())
+    
+    print(f"REQUEST [{request_id}]: {request.method} {request.url.path}")
+    print(f"REQUEST HEADERS [{request_id}]: {request.headers.get('content-type', '')}")
+    
+    # Process the request WITHOUT consuming the body
     try:
-        # For multipart/form-data requests (file uploads), don't try to decode the body
-        content_type = request.headers.get("content-type", "")
-        if content_type and "multipart/form-data" in content_type:
-            print(f"REQUEST BODY: [Binary data - multipart/form-data]")
-        else:
-            # For other requests, try to decode the body as UTF-8
-            body = await request.body()
-            if body:
-                try:
-                    print(f"REQUEST BODY: {body.decode()}")
-                except UnicodeDecodeError:
-                    print(f"REQUEST BODY: [Binary data - {len(body)} bytes]")
+        response = await call_next(request)
+        process_time = time.time() - start_time
+        print(f"RESPONSE [{request_id}]: {response.status_code} (took {process_time:.2f}s)")
+        return response
     except Exception as e:
-        print(f"Error reading request body: {str(e)}")
-    
-    # Process the request
-    response = await call_next(request)
-    
-    print(f"RESPONSE: {response.status_code}")
-    return response
+        print(f"ERROR [{request_id}]: {str(e)}")
+        import traceback
+        print(f"ERROR TRACEBACK [{request_id}]:\n{traceback.format_exc()}")
+        # Re-raise the exception to be handled by the global exception handler
+        raise
 
 if __name__ == "__main__":
     import uvicorn

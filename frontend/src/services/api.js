@@ -59,14 +59,53 @@ export const deleteDocument = async (docId) => {
   return response.data;
 };
 
-export const askQuestion = async (question, documentIds, model = "gpt-3.5-turbo") => {
-  const response = await api.post('/ask', {
-    question,
-    document_ids: documentIds,
-    model
-  });
-  
-  return response.data;
+export const askQuestion = async (question, documentIds = null, folder = null, model = "gpt-3.5-turbo") => {
+  try {
+    console.log(`Asking question - Documents: ${documentIds ? documentIds.length : 0}, Folder: ${folder}, Model: ${model}`);
+    
+    const payload = {
+      question,
+      model
+    };
+    
+    if (documentIds && documentIds.length > 0) {
+      payload.document_ids = documentIds;
+    }
+    
+    if (folder) {
+      payload.folder = folder;
+    }
+    
+    console.log('Sending payload to /ask endpoint:', JSON.stringify(payload, null, 2));
+    
+    // Add a timeout to prevent hanging requests
+    const response = await api.post('/ask', payload, {
+      timeout: 30000  // 30 second timeout
+    });
+    
+    // Log the full response for debugging
+    console.log('Received answer from API:', JSON.stringify(response.data, null, 2));
+    console.log('Answer text:', response.data.answer);
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error asking question:', error);
+    
+    // More specific error handling
+    if (error.code === 'ECONNABORTED') {
+      throw new Error('The request timed out. This could be due to server load or an issue with the OpenAI API.');
+    } else if (error.response) {
+      // Server responded with an error status
+      const errorMsg = error.response.data?.detail || `Error (${error.response.status}): ${error.response.statusText}`;
+      throw new Error(errorMsg);
+    } else if (error.request) {
+      // Request made but no response received
+      throw new Error('No response received from the server. The server may be down or the request timed out.');
+    } else {
+      // Something else went wrong
+      throw new Error(`Error: ${error.message}`);
+    }
+  }
 };
 
 // New folder management functions

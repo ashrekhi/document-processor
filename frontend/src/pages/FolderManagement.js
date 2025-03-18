@@ -102,7 +102,7 @@ function FolderManagement() {
       await deleteFolder(folderToDelete);
       setFolders(folders.filter(f => f !== folderToDelete));
       setDeleteDialogOpen(false);
-      setSuccess(`Folder "${folderToDelete}" deleted successfully`);
+      setSuccess(`Folder "${folderToDelete}" and its corresponding Pinecone namespace were deleted successfully`);
     } catch (error) {
       console.error('Error deleting folder:', error);
       setError(typeof error === 'string' ? error : 'Failed to delete folder');
@@ -216,22 +216,27 @@ function FolderManagement() {
       <Dialog
         open={deleteDialogOpen}
         onClose={handleDeleteCancel}
+        aria-labelledby="delete-dialog-title"
+        aria-describedby="delete-dialog-description"
       >
-        <DialogTitle>Delete Folder</DialogTitle>
+        <DialogTitle id="delete-dialog-title">
+          Confirm Deletion
+        </DialogTitle>
         <DialogContent>
-          <DialogContentText>
-            Are you sure you want to delete the folder "{folderToDelete}"? This will delete all files within this folder and cannot be undone.
+          <DialogContentText id="delete-dialog-description">
+            Are you sure you want to delete the folder "{folderToDelete}"? This action cannot be undone.
+            All files in this folder will be deleted, and the corresponding vector database namespace will also be removed.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleDeleteCancel} disabled={deleteLoading}>
+          <Button onClick={handleDeleteCancel} color="primary">
             Cancel
           </Button>
           <Button
             onClick={handleDeleteConfirm}
             color="error"
             disabled={deleteLoading}
-            startIcon={deleteLoading && <CircularProgress size={20} />}
+            startIcon={deleteLoading ? <CircularProgress size={20} /> : <DeleteIcon />}
           >
             {deleteLoading ? 'Deleting...' : 'Delete'}
           </Button>

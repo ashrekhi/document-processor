@@ -167,6 +167,19 @@ class S3Service:
                             except Exception as e:
                                 print(f"Error processing metadata during folder deletion: {str(e)}")
             
+            # After deleting all folder content and document records, also delete the Pinecone namespace
+            try:
+                from app.services.vector_db_service import VectorDBService
+                vector_db = VectorDBService()
+                namespace_deleted = vector_db.delete_namespace(folder_name)
+                if namespace_deleted:
+                    print(f"Successfully deleted Pinecone namespace for folder '{folder_name}'")
+                else:
+                    print(f"Failed to delete Pinecone namespace for folder '{folder_name}' or it didn't exist")
+            except Exception as ve:
+                print(f"Error deleting Pinecone namespace: {str(ve)}")
+                # Continue with the operation even if namespace deletion fails
+            
             return True
         except Exception as e:
             print(f"Error deleting folder: {str(e)}")

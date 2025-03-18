@@ -12,10 +12,10 @@ class DocumentResponse(BaseModel):
 
 class QuestionRequest(BaseModel):
     question: str
-    doc_ids: Optional[List[str]] = None
-    folder: Optional[str] = None
+    folder: str  # Now required
     model: Optional[str] = "gpt-4"
-    document_ids: Optional[List[str]] = None  # For backward compatibility
+    doc_ids: Optional[List[str]] = None  # Kept for backward compatibility but deprecated
+    document_ids: Optional[List[str]] = None  # Kept for backward compatibility but deprecated
 
 class QuestionResponse(BaseModel):
     question: str

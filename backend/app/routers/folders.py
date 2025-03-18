@@ -42,12 +42,18 @@ async def delete_folder(
 ):
     """
     Delete a folder and all its contents.
+    Also deletes the corresponding Pinecone namespace.
     """
     try:
+        print(f"FOLDER DELETE ENDPOINT: Starting deletion of folder '{folder_name}'")
+        print(f"FOLDER DELETE ENDPOINT: This will also delete the corresponding Pinecone namespace")
+        
         success = s3_service.delete_folder(folder_name)
         if success:
+            print(f"FOLDER DELETE ENDPOINT: Successfully deleted folder '{folder_name}' and its Pinecone namespace")
             return {"message": f"Folder {folder_name} deleted successfully"}
         else:
             raise HTTPException(status_code=500, detail=f"Failed to delete folder {folder_name}")
     except Exception as e:
+        print(f"FOLDER DELETE ENDPOINT ERROR: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error deleting folder: {str(e)}") 
