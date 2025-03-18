@@ -1,49 +1,47 @@
 services:
   # Backend API service
   - type: web
-    name: document-processor-api
+    name: backend
     env: python
-    region: oregon # You can change this to a region closer to your users
-    buildCommand: cd backend && pip uninstall -y pinecone-client && pip install -r requirements.txt
-    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    region: oregon
+    plan: free
+    buildCommand: >
+      cd backend &&
+      python -m venv clean_venv &&
+      . clean_venv/bin/activate &&
+      pip install --upgrade pip &&
+      pip install --no-cache-dir pinecone &&
+      pip install --no-cache-dir -r requirements.txt
+    startCommand: cd backend && . clean_venv/bin/activate && gunicorn -k uvicorn.workers.UvicornWorker -w 1 app.main:app --bind 0.0.0.0:$PORT
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.9.0
-      - key: AWS_ACCESS_KEY_ID
-        sync: false
-      - key: AWS_SECRET_ACCESS_KEY
-        sync: false
-      - key: AWS_REGION
-        sync: false
       - key: OPENAI_API_KEY
-        sync: false
-      - key: METADATA_BUCKET
         sync: false
       - key: PINECONE_API_KEY
         sync: false
-      - key: PINECONE_ENVIRONMENT
-        sync: false
       - key: PINECONE_INDEX
-        sync: false
+        value: "document-processor"
       - key: PINECONE_CLOUD
-        value: aws
+        value: "aws"
       - key: PINECONE_REGION
-        value: us-east-1
+        value: "us-east-1-aws"
       - key: ALLOW_DEV_FALLBACK
         value: "true"
-      - key: ALLOWED_ORIGINS
-        value: https://document-processor-frontend.onrender.com
+      - key: PORT
+        value: 8000
+      - key: PYTHON_VERSION
+        value: 3.9.18
 
   # Frontend static site
   - type: web
-    name: document-processor-frontend
+    name: frontend
     env: static
+    region: oregon
     buildCommand: cd frontend && npm install && npm run build
-    staticPublishPath: frontend/build
+    staticPublishPath: frontend/dist
     envVars:
-      - key: REACT_APP_API_URL
-        value: https://document-processor-api.onrender.com # This should match your backend URL
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html 
+      - key: VITE_BACKEND_URL
+        value: https://backend-jtuc.onrender.com
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-store 

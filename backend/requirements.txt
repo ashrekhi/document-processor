@@ -8,7 +8,7 @@ numpy>=1.24.0
 pydantic==2.4.2
 python-dotenv==1.0.0
 pymupdf==1.23.4
-pinecone>=2.2.1
+pinecone==2.2.1
 aiohttp==3.10.2
 asyncio==3.4.3
 typing-extensions>=4.5.0

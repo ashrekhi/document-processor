@@ -9,7 +9,25 @@ from dotenv import load_dotenv
 import pathlib
 
 # Import the Pinecone client and our EmbeddingService
-from pinecone import Pinecone, ServerlessSpec
+try:
+    from pinecone import Pinecone, ServerlessSpec
+    PINECONE_IMPORT_SUCCESS = True
+    print("Successfully imported pinecone package")
+except Exception as e:
+    print(f"WARNING: Failed to import from pinecone package: {str(e)}")
+    PINECONE_IMPORT_SUCCESS = False
+    # Define a stub Pinecone class to avoid errors
+    class Pinecone:
+        def __init__(self, api_key, **kwargs):
+            print(f"WARNING: Using mock Pinecone class due to import failure")
+            self.api_key = api_key
+        
+        def Index(self, index_name):
+            return SimpleMockIndex()
+        
+        def list_indexes(self):
+            return []
+
 from app.services.embedding_service import EmbeddingService
 
 # Get the absolute path to the .env file
@@ -83,157 +101,158 @@ class SimpleMockIndex:
         return {"namespaces": {"default": {"vector_count": 0}}}
 
 class VectorDBService:
-    def __init__(self):
-        # Try to load environment variables again
-        env_path = pathlib.Path(__file__).parent.parent.parent / '.env'
-        load_dotenv(dotenv_path=env_path)
-        
-        # Initialize the embedding service
-        self.embedding_service = EmbeddingService()
-        
-        # Set development mode based on env variable
-        self.dev_mode = os.getenv('VECTOR_DB_DEV_MODE', '').lower() == 'true'
-        if self.dev_mode:
-            print("DEVELOPMENT MODE: Vector DB operations will use mock implementations")
-            self.openai_client = None
-            self.pinecone_index = SimpleMockIndex()
-            return
-            
-        # Check if vector DB is disabled
-        if os.getenv('DISABLE_VECTOR_DB', '').lower() == 'true':
-            print("ERROR: Vector database operations are disabled by configuration.")
-            self.openai_client = None
-            self.pinecone_index = None
-            raise ValueError("Vector database operations are disabled by configuration.")
-            
-        # Initialize OpenAI client
-        self.openai_api_key = os.getenv('OPENAI_API_KEY')
-        if not self.openai_api_key:
-            print("ERROR: OPENAI_API_KEY not set. Vector operations will fail.")
-            print(f"Current working directory: {os.getcwd()}")
-            print(f"Looking for .env file at: {env_path}")
-            print(f".env file exists: {os.path.exists(env_path)}")
-            raise ValueError("OPENAI_API_KEY not set in environment variables. Vector operations cannot proceed.")
-        else:
-            self.openai_client = OpenAI(api_key=self.openai_api_key)
-        
-        # Initialize Pinecone with the new client
-        self.pinecone_api_key = os.getenv('PINECONE_API_KEY')
-        self.index_name = os.getenv('PINECONE_INDEX', 'radiant-documents')
-        self.pinecone_index = None
-        
-        print(f"DEBUG: Pinecone API Key length: {len(self.pinecone_api_key) if self.pinecone_api_key else 0}")
-        print(f"DEBUG: Pinecone Index Name: '{self.index_name}'")
-        
-        if not self.pinecone_api_key:
-            print("ERROR: PINECONE_API_KEY not set. Vector operations will fail.")
-            print(f"Current working directory: {os.getcwd()}")
-            print(f"Looking for .env file at: {env_path}")
-            print(f".env file exists: {os.path.exists(env_path)}")
-            raise ValueError("PINECONE_API_KEY not set in environment variables. Vector operations cannot proceed.")
-        
-        # Get Pinecone cloud, region and environment if set
-        self.pinecone_cloud = os.getenv('PINECONE_CLOUD')
-        self.pinecone_env = os.getenv('PINECONE_ENVIRONMENT')
-        self.pinecone_region = os.getenv('PINECONE_REGION')
-        
-        # Check if we have a new or old format API key
-        self.is_new_api_key = self.pinecone_api_key.startswith('pcsk_')
-        
-        if self.is_new_api_key:
-            print(f"DEBUG: Using new Pinecone API key format (pcsk_)")
-            if self.pinecone_cloud:
-                print(f"DEBUG: Using Pinecone cloud: {self.pinecone_cloud}")
-            else:
-                print(f"WARNING: New Pinecone API keys require PINECONE_CLOUD parameter (typically 'aws' or 'gcp')")
-                print(f"Add PINECONE_CLOUD=aws to your .env file")
-                
-            if self.pinecone_region:
-                print(f"DEBUG: Using Pinecone region: {self.pinecone_region}")
-            else:
-                print(f"WARNING: New Pinecone API keys require PINECONE_REGION parameter (e.g., 'us-east-1', 'us-west-2')")
-                print(f"Add PINECONE_REGION=us-east-1 to your .env file")
-        else:
-            print(f"DEBUG: Using older Pinecone API key format")
-            if self.pinecone_env:
-                print(f"DEBUG: Using Pinecone environment: {self.pinecone_env}")
-            else:
-                print(f"WARNING: Older Pinecone API keys require PINECONE_ENVIRONMENT parameter")
-                print(f"Add PINECONE_ENVIRONMENT=gcp-starter to your .env file")
-        
+    def __init__(self, index_name: str = None, namespace: str = "default"):
+        """Initialize the Vector DB service, connected to the specified index and namespace"""
         try:
-            # Initialize Pinecone client
-            print(f"Initializing Pinecone with new client...")
-            print(f"DEBUG: About to initialize Pinecone with API key starting with: {self.pinecone_api_key[:5]}...")
+            print(f"Initializing VectorDBService with index_name='{index_name}', namespace='{namespace}'")
             
-            # Initialize Pinecone based on API key format
+            # Get the OpenAI API key from environment variables
+            self.openai_api_key = os.getenv('OPENAI_API_KEY')
+            if not self.openai_api_key:
+                print("Error: OPENAI_API_KEY not set in environment variables")
+                print(f".env file exists: {os.path.exists(env_path)}")
+                raise ValueError("OPENAI_API_KEY not set in environment variables. Vector operations cannot proceed.")
+            
+            # Initialize an OpenAI API client for embeddings
+            print(f"Creating embedding service...")
+            self.embedding_service = EmbeddingService(self.openai_api_key)
+            print(f"Successfully created embedding service")
+            
+            # Set the index_name to use
+            default_index = "document-processor"
+            self.index_name = index_name if index_name else os.getenv('PINECONE_INDEX', default_index)
+            print(f"Using index name: {self.index_name}")
+            
+            # Get the namespace to use
+            self.namespace = namespace
+            print(f"Using namespace: {self.namespace}")
+            
+            # Get the Pinecone API key from environment variables
+            self.pinecone_api_key = os.getenv('PINECONE_API_KEY')
+            if not self.pinecone_api_key:
+                print("Error: PINECONE_API_KEY not set in environment variables")
+                print(f".env file exists: {os.path.exists(env_path)}")
+                if os.getenv('ALLOW_DEV_FALLBACK', '').lower() == 'true':
+                    print(f"WARNING: Using development fallback mode for Pinecone. Vector search features will be limited.")
+                    self.pinecone_index = SimpleMockIndex()
+                    return
+                else:
+                    raise ValueError("PINECONE_API_KEY not set in environment variables. Vector operations cannot proceed.")
+            
+            # Get Pinecone cloud, region and environment if set
+            self.pinecone_cloud = os.getenv('PINECONE_CLOUD')
+            self.pinecone_env = os.getenv('PINECONE_ENVIRONMENT')
+            self.pinecone_region = os.getenv('PINECONE_REGION')
+            
+            # Check if we have a new or old format API key
+            self.is_new_api_key = self.pinecone_api_key.startswith('pcsk_')
+            
             if self.is_new_api_key:
+                print(f"DEBUG: Using new Pinecone API key format (pcsk_)")
                 if self.pinecone_cloud:
-                    print(f"DEBUG: Using cloud parameter in Pinecone initialization: {self.pinecone_cloud}")
-                    self.pc = Pinecone(api_key=self.pinecone_api_key, cloud=self.pinecone_cloud)
+                    print(f"DEBUG: Using Pinecone cloud: {self.pinecone_cloud}")
                 else:
-                    print(f"DEBUG: No cloud parameter provided, trying without it")
-                    self.pc = Pinecone(api_key=self.pinecone_api_key)
+                    print(f"WARNING: New Pinecone API keys require PINECONE_CLOUD parameter (typically 'aws' or 'gcp')")
+                    print(f"Add PINECONE_CLOUD=aws to your .env file")
+                    
+                if self.pinecone_region:
+                    print(f"DEBUG: Using Pinecone region: {self.pinecone_region}")
+                else:
+                    print(f"WARNING: New Pinecone API keys require PINECONE_REGION parameter (e.g., 'us-east-1', 'us-west-2')")
+                    print(f"Add PINECONE_REGION=us-east-1 to your .env file")
             else:
+                print(f"DEBUG: Using older Pinecone API key format")
                 if self.pinecone_env:
-                    print(f"DEBUG: Using environment parameter in Pinecone initialization: {self.pinecone_env}")
-                    self.pc = Pinecone(api_key=self.pinecone_api_key, environment=self.pinecone_env)
+                    print(f"DEBUG: Using Pinecone environment: {self.pinecone_env}")
                 else:
-                    print(f"DEBUG: No environment parameter provided, trying without it")
-                    self.pc = Pinecone(api_key=self.pinecone_api_key)
-                
-            print(f"DEBUG: Pinecone client initialized successfully")
+                    print(f"WARNING: Older Pinecone API keys require PINECONE_ENVIRONMENT parameter")
+                    print(f"Add PINECONE_ENVIRONMENT=gcp-starter to your .env file")
+            
+            # If Pinecone import failed, use the fallback
+            if not PINECONE_IMPORT_SUCCESS:
+                print(f"WARNING: Pinecone import failed. Using fallback mock implementation.")
+                if os.getenv('ALLOW_DEV_FALLBACK', '').lower() == 'true':
+                    self.pinecone_index = SimpleMockIndex()
+                    return
+                else:
+                    raise ValueError("Failed to import Pinecone library and ALLOW_DEV_FALLBACK is not enabled.")
             
             try:
-                # Check if index exists and create if needed
-                print(f"DEBUG: Ensuring index '{self.index_name}' exists")
-                self._ensure_index_exists()
+                # Initialize Pinecone client
+                print(f"Initializing Pinecone with new client...")
+                print(f"DEBUG: About to initialize Pinecone with API key starting with: {self.pinecone_api_key[:5]}...")
                 
-                # Connect to the index
-                print(f"Connecting to Pinecone index: {self.index_name}")
-                self.pinecone_index = self.pc.Index(self.index_name)
-                print(f"DEBUG: Got Pinecone index reference")
+                # Initialize Pinecone based on API key format
+                if self.is_new_api_key:
+                    if self.pinecone_cloud:
+                        print(f"DEBUG: Using cloud parameter in Pinecone initialization: {self.pinecone_cloud}")
+                        self.pc = Pinecone(api_key=self.pinecone_api_key, cloud=self.pinecone_cloud)
+                    else:
+                        print(f"DEBUG: No cloud parameter provided, trying without it")
+                        self.pc = Pinecone(api_key=self.pinecone_api_key)
+                else:
+                    if self.pinecone_env:
+                        print(f"DEBUG: Using environment parameter in Pinecone initialization: {self.pinecone_env}")
+                        self.pc = Pinecone(api_key=self.pinecone_api_key, environment=self.pinecone_env)
+                    else:
+                        print(f"DEBUG: No environment parameter provided, trying without it")
+                        self.pc = Pinecone(api_key=self.pinecone_api_key)
+                    
+                print(f"DEBUG: Pinecone client initialized successfully")
                 
-                # Test the connection
-                print(f"DEBUG: About to describe index stats")
-                stats = self.pinecone_index.describe_index_stats()
-                print(f"Index stats: {stats}")
-                print(f"DEBUG: Successfully connected to Pinecone index '{self.index_name}'")
+                try:
+                    # Check if index exists and create if needed
+                    print(f"DEBUG: Ensuring index '{self.index_name}' exists")
+                    self._ensure_index_exists()
+                    
+                    # Connect to the index
+                    print(f"Connecting to Pinecone index: {self.index_name}")
+                    self.pinecone_index = self.pc.Index(self.index_name)
+                    print(f"DEBUG: Got Pinecone index reference")
+                    
+                    # Test the connection
+                    print(f"DEBUG: About to describe index stats")
+                    stats = self.pinecone_index.describe_index_stats()
+                    print(f"Index stats: {stats}")
+                    print(f"DEBUG: Successfully connected to Pinecone index '{self.index_name}'")
+                    
+                except Exception as index_error:
+                    print(f"ERROR: Failed to connect to Pinecone index: {str(index_error)}")
+                    print(f"DEBUG: Full error details:")
+                    traceback.print_exc()
+                    
+                    print(f"\nTROUBLESHOOTING GUIDE:")
+                    if self.is_new_api_key:
+                        print(f"1. Check that your Pinecone API key is valid and not expired")
+                        print(f"2. Verify that PINECONE_CLOUD in your .env file is set correctly (usually 'aws' or 'gcp')")
+                        print(f"3. Verify that PINECONE_REGION in your .env file is set correctly (e.g., 'us-east-1')")
+                        print(f"4. Ensure you're using the correct value for PINECONE_INDEX")
+                        print(f"5. Check if your Pinecone account has an active subscription and sufficient quota")
+                    else:
+                        print(f"1. Check that your Pinecone API key is valid and not expired")
+                        print(f"2. Verify that PINECONE_ENVIRONMENT in your .env file matches your Pinecone account")
+                        print(f"3. Ensure the index '{self.index_name}' exists or can be created in your Pinecone project")
+                        print(f"4. Check if your Pinecone account has an active subscription and sufficient quota")
+                    
+                    if os.getenv('ALLOW_DEV_FALLBACK', '').lower() == 'true':
+                        print(f"WARNING: Using development fallback mode for Pinecone. Vector search features will be limited.")
+                        self.pinecone_index = SimpleMockIndex()
+                    else:
+                        raise ValueError(f"Failed to connect to Pinecone index: {str(index_error)}")
                 
-            except Exception as index_error:
-                print(f"ERROR: Failed to connect to Pinecone index: {str(index_error)}")
+            except Exception as e:
+                print(f"ERROR: Failed to initialize Pinecone client: {str(e)}")
                 print(f"DEBUG: Full error details:")
                 traceback.print_exc()
-                
-                print(f"\nTROUBLESHOOTING GUIDE:")
-                if self.is_new_api_key:
-                    print(f"1. Check that your Pinecone API key is valid and not expired")
-                    print(f"2. Verify that PINECONE_CLOUD in your .env file is set correctly (usually 'aws' or 'gcp')")
-                    print(f"3. Verify that PINECONE_REGION in your .env file is set correctly (e.g., 'us-east-1')")
-                    print(f"4. Ensure you're using the correct value for PINECONE_INDEX")
-                    print(f"5. Check if your Pinecone account has an active subscription and sufficient quota")
-                else:
-                    print(f"1. Check that your Pinecone API key is valid and not expired")
-                    print(f"2. Verify that PINECONE_ENVIRONMENT in your .env file matches your Pinecone account")
-                    print(f"3. Ensure the index '{self.index_name}' exists or can be created in your Pinecone project")
-                    print(f"4. Check if your Pinecone account has an active subscription and sufficient quota")
                 
                 if os.getenv('ALLOW_DEV_FALLBACK', '').lower() == 'true':
                     print(f"WARNING: Using development fallback mode for Pinecone. Vector search features will be limited.")
                     self.pinecone_index = SimpleMockIndex()
                 else:
-                    raise ValueError(f"Failed to connect to Pinecone index: {str(index_error)}")
-                
+                    raise ValueError(f"Failed to initialize Pinecone client: {str(e)}")
         except Exception as e:
-            print(f"ERROR: Failed to initialize Pinecone client: {str(e)}")
-            print(f"DEBUG: Full error details:")
-            traceback.print_exc()
-            
-            if os.getenv('ALLOW_DEV_FALLBACK', '').lower() == 'true':
-                print(f"WARNING: Using development fallback mode for Pinecone. Vector search features will be limited.")
-                self.pinecone_index = SimpleMockIndex()
-            else:
-                raise ValueError(f"Failed to initialize Pinecone client: {str(e)}")
+            print(f"ERROR: Failed to initialize VectorDBService: {str(e)}")
+            raise ValueError(f"Failed to initialize VectorDBService: {str(e)}")
     
     def _ensure_index_exists(self):
         """Check if the index exists and create it if it doesn't"""
