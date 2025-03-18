@@ -16,23 +16,74 @@ try:
     print(f"EmbeddingService: Pinecone package found at {pinecone_pkg.__file__}")
     print(f"EmbeddingService: Pinecone version: {getattr(pinecone_pkg, '__version__', 'unknown')}")
     
-    # Now try to import the specific classes
-    from pinecone import Pinecone, ServerlessSpec
-    PINECONE_IMPORT_SUCCESS = True
-    print(f"EmbeddingService: Pinecone import succeeded")
-    
-    # Verify that the Pinecone class is actually available
-    if not hasattr(pinecone_pkg, 'Pinecone'):
-        print(f"EmbeddingService: WARNING - Pinecone module imported but Pinecone class not found!")
-        print(f"EmbeddingService: Available attributes: {dir(pinecone_pkg)}")
-        raise ImportError("Pinecone class not found in imported module")
+    # Check if we have V2 API (with Pinecone class)
+    if hasattr(pinecone_pkg, 'Pinecone'):
+        # Import directly from the module
+        from pinecone import Pinecone, ServerlessSpec
+        print("EmbeddingService: Successfully imported Pinecone class (V2 API)")
+        PINECONE_NEW_API = True
+    # Check if we have V1 API (with init function)
+    elif hasattr(pinecone_pkg, 'init'):
+        print("EmbeddingService: Detected V1 API with init function")
+        # Create adapter classes for compatibility
+        class Pinecone:
+            def __init__(self, api_key, **kwargs):
+                print("EmbeddingService: Using V1 API adapter")
+                self.api_key = api_key
+                # Initialize the V1 client
+                if 'environment' in kwargs:
+                    pinecone_pkg.init(api_key=api_key, environment=kwargs['environment'])
+                elif 'cloud' in kwargs:
+                    print(f"EmbeddingService: Note - 'cloud' parameter {kwargs['cloud']} ignored in V1 API")
+                    pinecone_pkg.init(api_key=api_key)
+                else:
+                    pinecone_pkg.init(api_key=api_key)
+                
+            def Index(self, index_name):
+                print(f"EmbeddingService: Getting index '{index_name}' with V1 API")
+                return pinecone_pkg.Index(name=index_name)
+            
+            def list_indexes(self):
+                print("EmbeddingService: Listing indexes with V1 API")
+                indexes = pinecone_pkg.list_indexes()
+                # Convert to V2 format for compatibility
+                return {"indexes": [{"name": idx} for idx in indexes]}
+                
+            def create_index(self, name, dimension, metric, **kwargs):
+                print(f"EmbeddingService: Creating index '{name}' with V1 API")
+                spec = kwargs.get('spec', None)
+                if spec:
+                    # Extract cloud/region info but can't use spec directly in V1
+                    print(f"EmbeddingService: Note - V1 API doesn't use 'spec' parameter")
+                
+                # Extract environment if present
+                env = kwargs.get('environment', None)
+                if env:
+                    return pinecone_pkg.create_index(name=name, dimension=dimension, metric=metric, environment=env)
+                else:
+                    return pinecone_pkg.create_index(name=name, dimension=dimension, metric=metric)
         
+        class ServerlessSpec:
+            def __init__(self, cloud, region):
+                self.cloud = cloud
+                self.region = region
+                
+        PINECONE_NEW_API = False
+    else:
+        print("EmbeddingService: WARNING - Unknown Pinecone API version")
+        from pinecone import Pinecone, ServerlessSpec
+        PINECONE_NEW_API = True
+        
+    PINECONE_IMPORT_SUCCESS = True
+    print(f"EmbeddingService: Successfully imported pinecone package (New API: {PINECONE_NEW_API})")
+    
 except ImportError as e:
     print(f"EmbeddingService: WARNING - Pinecone import failed: {str(e)}")
     print(f"EmbeddingService: Import error details:\n{traceback.format_exc()}")
     print(f"EmbeddingService: Python version: {sys.version}")
     print(f"EmbeddingService: Python path: {sys.path}")
     PINECONE_IMPORT_SUCCESS = False
+    PINECONE_NEW_API = False
     # Define stub classes for Pinecone
     class Pinecone:
         def __init__(self, api_key, **kwargs):
@@ -90,8 +141,24 @@ class EmbeddingService:
         try:
             self.logger.info(f"Initializing Pinecone with cloud: {self.cloud}, region: {self.region}")
             
-            # Initialize Pinecone with the new API
-            pc = Pinecone(api_key=self.api_key, cloud=self.cloud)
+            # Initialize Pinecone based on API version
+            if PINECONE_NEW_API:
+                # New API format
+                self.logger.info("Using V2 Pinecone API format")
+                if self.environment:
+                    self.logger.info(f"Using environment parameter: {self.environment}")
+                    pc = Pinecone(api_key=self.api_key, environment=self.environment)
+                else:
+                    self.logger.info(f"Using cloud parameter: {self.cloud}")
+                    pc = Pinecone(api_key=self.api_key, cloud=self.cloud)
+            else:
+                # Old API format (V1)
+                self.logger.info("Using V1 Pinecone API format")
+                if self.environment:
+                    pc = Pinecone(api_key=self.api_key, environment=self.environment)
+                else:
+                    pc = Pinecone(api_key=self.api_key)
+                    
             self.pinecone_available = True
             
             # Check if index exists and connect to it
@@ -99,25 +166,56 @@ class EmbeddingService:
                 # Get list of indexes
                 self.logger.info("Checking available Pinecone indexes...")
                 
-                # List indexes with the new API format
-                available_indexes = [idx['name'] for idx in pc.list_indexes().get('indexes', [])]
+                # List indexes based on API version
+                if PINECONE_NEW_API:
+                    # New API format
+                    available_indexes = [idx['name'] for idx in pc.list_indexes().get('indexes', [])]
+                else:
+                    # Old API might return list or dict
+                    indexes_resp = pc.list_indexes()
+                    if isinstance(indexes_resp, dict) and 'indexes' in indexes_resp:
+                        available_indexes = [idx['name'] for idx in indexes_resp.get('indexes', [])]
+                    elif isinstance(indexes_resp, list):
+                        available_indexes = indexes_resp
+                    else:
+                        available_indexes = []
+                        
                 self.logger.info(f"Available Pinecone indexes: {available_indexes}")
                 
                 if self.index_name not in available_indexes:
                     self.logger.info(f"Creating new Pinecone index: {self.index_name}")
                     # Create index with the appropriate dimension for text-embedding-ada-002 (1536)
-                    pc.create_index(
-                        name=self.index_name,
-                        dimension=1536,  # dimension for text-embedding-ada-002
-                        metric="cosine",
-                        spec=ServerlessSpec(
-                            cloud=self.cloud,
-                            region=self.region
+                    if PINECONE_NEW_API:
+                        pc.create_index(
+                            name=self.index_name,
+                            dimension=1536,  # dimension for text-embedding-ada-002
+                            metric="cosine",
+                            spec=ServerlessSpec(
+                                cloud=self.cloud,
+                                region=self.region
+                            )
                         )
-                    )
+                    else:
+                        # Old API doesn't use spec
+                        if self.environment:
+                            pc.create_index(
+                                name=self.index_name,
+                                dimension=1536,
+                                metric="cosine",
+                                environment=self.environment
+                            )
+                        else:
+                            pc.create_index(
+                                name=self.index_name,
+                                dimension=1536,
+                                metric="cosine"
+                            )
                 
-                # Connect to the index with the new API
-                self.index = pc.Index(self.index_name)
+                # Connect to the index based on API version
+                if PINECONE_NEW_API:
+                    self.index = pc.Index(self.index_name)
+                else:
+                    self.index = pc.Index(name=self.index_name)
                 
                 self.logger.info(f"Connected to Pinecone index: {self.index_name}")
                 
@@ -127,6 +225,7 @@ class EmbeddingService:
                 
             except Exception as e:
                 self.logger.error(f"Error with Pinecone index: {str(e)}")
+                self.logger.error(f"Details: {traceback.format_exc()}")
                 self.pinecone_available = False
                 
         except Exception as e:

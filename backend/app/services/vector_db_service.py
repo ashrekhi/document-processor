@@ -26,16 +26,62 @@ try:
     print(f"Pinecone package version: {getattr(pinecone_pkg, '__version__', 'unknown')}")
     print(f"Pinecone package contents: {dir(pinecone_pkg)}")
     
-    # Check if Pinecone class exists in the module
+    # First try with v2 format (direct attribute)
     if hasattr(pinecone_pkg, 'Pinecone'):
-        # Import directly from the module
+        print("V2 API detected - Importing Pinecone class from module directly")
         Pinecone = pinecone_pkg.Pinecone
         ServerlessSpec = pinecone_pkg.ServerlessSpec
-        print("Successfully imported Pinecone class from module")
+        print("Successfully imported Pinecone class from module attributes")
+        PINECONE_NEW_API = True
+    # Then try with v1 format (using the module as the client)
+    elif hasattr(pinecone_pkg, 'init'):
+        print("V1 API detected - Using module as client")
+        # Create class adapters for backwards compatibility
+        class PineconeAdapter:
+            def __init__(self, api_key, **kwargs):
+                print("Using adapter for V1 Pinecone API")
+                self.api_key = api_key
+                # Initialize the V1 client
+                if 'environment' in kwargs:
+                    pinecone_pkg.init(api_key=api_key, environment=kwargs['environment'])
+                else:
+                    pinecone_pkg.init(api_key=api_key)
+                
+            def Index(self, index_name):
+                print(f"Getting index '{index_name}' with V1 API")
+                return pinecone_pkg.Index(name=index_name)
+                
+            def list_indexes(self):
+                print("Listing indexes with V1 API")
+                indexes = pinecone_pkg.list_indexes()
+                # Convert to V2 format
+                return {"indexes": [{"name": idx} for idx in indexes]}
+                
+            def create_index(self, name, dimension, metric, **kwargs):
+                print(f"Creating index '{name}' with V1 API")
+                # Extract environment from kwargs if present
+                env = kwargs.get('environment', None)
+                if env:
+                    return pinecone_pkg.create_index(name=name, dimension=dimension, metric=metric, environment=env)
+                else:
+                    return pinecone_pkg.create_index(name=name, dimension=dimension, metric=metric)
+        
+        class ServerlessSpecAdapter:
+            def __init__(self, cloud, region):
+                self.cloud = cloud
+                self.region = region
+        
+        # Assign the adapter classes
+        Pinecone = PineconeAdapter
+        ServerlessSpec = ServerlessSpecAdapter
+        print("Successfully created Pinecone adapter for V1 API")
+        PINECONE_NEW_API = False
     else:
-        # Try the regular import which might work if the package structure is different
+        print("WARNING: Unknown Pinecone API version - neither V1 nor V2 detected")
+        # Try the regular import as last resort
         from pinecone import Pinecone, ServerlessSpec
         print("Successfully imported Pinecone via from...import")
+        PINECONE_NEW_API = True
         
     PINECONE_IMPORT_SUCCESS = True
     print("Successfully imported pinecone package")
@@ -46,7 +92,11 @@ try:
         pinecone_version = importlib.metadata.version("pinecone")
         print(f"Imported Pinecone version: {pinecone_version}")
     except Exception as ver_error:
-        print(f"Could not determine Pinecone version: {str(ver_error)}")
+        try:
+            pinecone_version = importlib.metadata.version("pinecone-client")
+            print(f"Imported Pinecone-client version: {pinecone_version}")
+        except Exception:
+            print(f"Could not determine Pinecone version: {str(ver_error)}")
 except ImportError as e:
     print(f"WARNING: Failed to import from pinecone package due to ImportError: {str(e)}")
     print(f"This usually means the package is not installed or the wrong version is installed")
@@ -62,6 +112,7 @@ except ImportError as e:
     except Exception as pkg_error:
         print(f"Could not list installed packages: {str(pkg_error)}")
     PINECONE_IMPORT_SUCCESS = False
+    PINECONE_NEW_API = False
     # Define a stub Pinecone class to avoid errors
     class Pinecone:
         def __init__(self, api_key, **kwargs):
@@ -83,6 +134,7 @@ except Exception as e:
     print(f"Exception type: {type(e).__name__}")
     print(f"Exception details:\n{traceback.format_exc()}")
     PINECONE_IMPORT_SUCCESS = False
+    PINECONE_NEW_API = False
     # Define a stub Pinecone class to avoid errors
     class Pinecone:
         def __init__(self, api_key, **kwargs):
@@ -316,8 +368,9 @@ class VectorDBService:
                 print(f"Initializing Pinecone with new client...")
                 print(f"DEBUG: About to initialize Pinecone with API key starting with: {self.pinecone_api_key[:5]}...")
                 
-                # Initialize Pinecone with the new API
+                # Initialize Pinecone based on which API version we're using
                 if self.is_new_api_key:
+                    print(f"DEBUG: Using new API key format with {'new' if PINECONE_NEW_API else 'old'} API client")
                     if self.pinecone_cloud:
                         print(f"DEBUG: Using cloud parameter in Pinecone initialization: {self.pinecone_cloud}")
                         self.pc = Pinecone(api_key=self.pinecone_api_key, cloud=self.pinecone_cloud)
@@ -348,7 +401,15 @@ class VectorDBService:
                     
                     # Connect to the index
                     print(f"Connecting to Pinecone index: {self.index_name}")
-                    self.pinecone_index = self.pc.Index(self.index_name)
+                    
+                    # Initialize the index with the appropriate API version
+                    if PINECONE_NEW_API:
+                        print(f"Using new API format to connect to index")
+                        self.pinecone_index = self.pc.Index(self.index_name)
+                    else:
+                        print(f"Using old API format to connect to index")
+                        self.pinecone_index = self.pc.Index(name=self.index_name)
+                        
                     print(f"DEBUG: Got Pinecone index reference")
                     
                     # Test the connection and dump DETAILED stats
@@ -418,14 +479,30 @@ class VectorDBService:
             # Check if the index already exists
             index_exists = False
             
-            # New API format returns a dict with 'indexes' key
-            if isinstance(indexes, dict) and 'indexes' in indexes:
-                index_list = indexes['indexes']
-                for idx in index_list:
-                    if isinstance(idx, dict) and 'name' in idx and idx['name'] == self.index_name:
+            # Determine the format of response based on API version
+            if PINECONE_NEW_API:
+                # New API format returns a dict with 'indexes' key
+                if isinstance(indexes, dict) and 'indexes' in indexes:
+                    index_list = indexes['indexes']
+                    for idx in index_list:
+                        if isinstance(idx, dict) and 'name' in idx and idx['name'] == self.index_name:
+                            index_exists = True
+                            print(f"DEBUG: Found existing index '{self.index_name}' in indexes list")
+                            break
+            else:
+                # Old API returns a list of string names
+                if isinstance(indexes, list):
+                    if self.index_name in indexes:
                         index_exists = True
                         print(f"DEBUG: Found existing index '{self.index_name}' in indexes list")
-                        break
+                # For adapter case, also check dict format
+                elif isinstance(indexes, dict) and 'indexes' in indexes:
+                    index_list = indexes['indexes']
+                    for idx in index_list:
+                        if isinstance(idx, dict) and idx.get('name') == self.index_name:
+                            index_exists = True
+                            print(f"DEBUG: Found existing index '{self.index_name}' in adapter indexes list")
+                            break
             
             # Fix the index existence check - the log shows we're incorrectly reporting False even when index exists
             if not index_exists:
@@ -440,33 +517,50 @@ class VectorDBService:
             if not index_exists:
                 print(f"Index '{self.index_name}' not found. Creating...")
                 
-                # Create index based on API key format
+                # Create index based on API key format and API version
                 if self.is_new_api_key:
                     if not self.pinecone_region:
                         print(f"ERROR: PINECONE_REGION is required for creating indexes with new API keys")
                         print(f"Add PINECONE_REGION=us-east-1 to your .env file")
                         raise ValueError("PINECONE_REGION environment variable is required but not set")
-                        
-                    print(f"DEBUG: Creating index with ServerlessSpec for new API key format")
+                    
+                    print(f"DEBUG: Creating index with {'ServerlessSpec' if PINECONE_NEW_API else 'environment'} for new API key format")
                     print(f"DEBUG: Using cloud={self.pinecone_cloud or 'aws'}, region={self.pinecone_region}")
                     
-                    self.pc.create_index(
-                        name=self.index_name,
-                        dimension=1536,
-                        metric="cosine",
-                        spec=ServerlessSpec(
-                            cloud=self.pinecone_cloud or "aws",
-                            region=self.pinecone_region
+                    if PINECONE_NEW_API:
+                        self.pc.create_index(
+                            name=self.index_name,
+                            dimension=1536,
+                            metric="cosine",
+                            spec=ServerlessSpec(
+                                cloud=self.pinecone_cloud or "aws",
+                                region=self.pinecone_region
+                            )
                         )
-                    )
+                    else:
+                        # Old API format
+                        self.pc.create_index(
+                            name=self.index_name,
+                            dimension=1536,
+                            metric="cosine"
+                        )
                 else:
                     print(f"DEBUG: Creating index for old API key format")
-                    self.pc.create_index(
-                        name=self.index_name,
-                        dimension=1536,
-                        metric="cosine",
-                        environment=self.pinecone_env
-                    )
+                    if PINECONE_NEW_API:
+                        self.pc.create_index(
+                            name=self.index_name,
+                            dimension=1536,
+                            metric="cosine",
+                            environment=self.pinecone_env
+                        )
+                    else:
+                        # Old API direct call
+                        self.pc.create_index(
+                            name=self.index_name,
+                            dimension=1536,
+                            metric="cosine",
+                            environment=self.pinecone_env
+                        )
                     
                 print(f"Created new Pinecone index: {self.index_name}")
             else:

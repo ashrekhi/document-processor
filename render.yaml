@@ -21,6 +21,7 @@ services:
       pip install --no-cache-dir -r requirements.txt &&
       # Print diagnostics
       pip list | grep pinecone &&
+      echo "===== PINECONE PACKAGE DIAGNOSTICS =====" &&
       python -c "
 import sys
 print('Python version:', sys.version)
@@ -30,18 +31,45 @@ try:
     print('Pinecone imported successfully')
     print('Package version:', getattr(pinecone, '__version__', 'unknown'))
     print('Has Pinecone class:', hasattr(pinecone, 'Pinecone'))
+    print('Has init function:', hasattr(pinecone, 'init'))
     print('Package location:', pinecone.__file__)
-    print('dir(pinecone):', dir(pinecone))
+    print('Package directory:', dir(pinecone))
+    
+    # Try importing the specific classes to see which work
+    print('\\nAttempting specific imports...')
+    success = []
+    try:
+        from pinecone import Pinecone
+        success.append('Pinecone class')
+    except Exception as e:
+        print(f'Error importing Pinecone class: {str(e)}')
+    
+    try:
+        from pinecone import init
+        success.append('init function')
+    except Exception as e:
+        print(f'Error importing init function: {str(e)}')
+    
+    try:
+        from pinecone import Index
+        success.append('Index class')
+    except Exception as e:
+        print(f'Error importing Index class: {str(e)}')
+        
+    print(f'Successfully imported: {success}')
+    
 except Exception as e:
     print('ERROR importing pinecone:', str(e))
     import traceback
     traceback.print_exc()
-"
+" &&
+      echo "===== END DIAGNOSTICS ====="
     startCommand: >
       cd backend && 
       echo "Starting application with virtual environment at $PWD/clean_venv" &&
       . clean_venv/bin/activate &&
       # Print diagnostics at startup
+      echo "===== STARTUP DIAGNOSTICS =====" &&
       python -c "
       import sys
       print('STARTUP: Python version:', sys.version)
@@ -50,10 +78,38 @@ except Exception as e:
           print('STARTUP: Pinecone imported successfully')
           print('STARTUP: Package version:', getattr(pinecone, '__version__', 'unknown'))
           print('STARTUP: Pinecone class exists:', hasattr(pinecone, 'Pinecone'))
+          print('STARTUP: Init function exists:', hasattr(pinecone, 'init'))
           print('STARTUP: Package location:', pinecone.__file__)
+          print('STARTUP: Package directory:', dir(pinecone))
+          
+          # Try importing specific components
+          print('\\nSTARTUP: Attempting specific imports...')
+          success = []
+          try:
+              from pinecone import Pinecone
+              success.append('Pinecone class')
+              # Try to instantiate
+              try:
+                  p = Pinecone(api_key='test')
+                  print('STARTUP: Successfully instantiated Pinecone class')
+              except Exception as inst_e:
+                  print(f'STARTUP: Error instantiating Pinecone: {str(inst_e)}')
+          except Exception as e:
+              print(f'STARTUP: Error importing Pinecone class: {str(e)}')
+          
+          try:
+              from pinecone import Index
+              success.append('Index class')
+          except Exception as e:
+              print(f'STARTUP: Error importing Index class: {str(e)}')
+              
+          print(f'STARTUP: Successfully imported: {success}')
       except Exception as e:
           print('STARTUP ERROR importing pinecone:', str(e))
+          import traceback
+          traceback.print_exc()
       " &&
+      echo "===== END STARTUP DIAGNOSTICS =====" &&
       # Start the application
       gunicorn -k uvicorn.workers.UvicornWorker -w 1 app.main:app --bind 0.0.0.0:$PORT
     envVars:
