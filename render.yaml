@@ -10,7 +10,8 @@ services:
       python -m venv clean_venv &&
       . clean_venv/bin/activate &&
       pip install --upgrade pip &&
-      pip install --no-cache-dir pinecone &&
+      pip uninstall -y pinecone-client &&
+      pip install --no-cache-dir "pinecone>=2.2.1" &&
       pip install --no-cache-dir -r requirements.txt
     startCommand: cd backend && . clean_venv/bin/activate && gunicorn -k uvicorn.workers.UvicornWorker -w 1 app.main:app --bind 0.0.0.0:$PORT
     envVars:

@@ -1,5 +1,6 @@
 import os
 import json
+import hashlib
 from typing import List, Dict, Any, Optional
 from openai import OpenAI
 import traceback
@@ -13,8 +14,41 @@ try:
     from pinecone import Pinecone, ServerlessSpec
     PINECONE_IMPORT_SUCCESS = True
     print("Successfully imported pinecone package")
+    # Print the imported Pinecone version to help with debugging
+    import importlib.metadata
+    try:
+        pinecone_version = importlib.metadata.version("pinecone")
+        print(f"Imported Pinecone version: {pinecone_version}")
+    except Exception as ver_error:
+        print(f"Could not determine Pinecone version: {str(ver_error)}")
+except ImportError as e:
+    print(f"WARNING: Failed to import from pinecone package due to ImportError: {str(e)}")
+    print(f"This usually means the package is not installed or the wrong version is installed")
+    import sys
+    print(f"Python version: {sys.version}")
+    print(f"Python path: {sys.path}")
+    # Try to list installed packages
+    try:
+        import pkg_resources
+        installed_packages = [d.project_name for d in pkg_resources.working_set]
+        print(f"Installed packages: {installed_packages}")
+    except Exception as pkg_error:
+        print(f"Could not list installed packages: {str(pkg_error)}")
+    PINECONE_IMPORT_SUCCESS = False
+    # Define a stub Pinecone class to avoid errors
+    class Pinecone:
+        def __init__(self, api_key, **kwargs):
+            print(f"WARNING: Using mock Pinecone class due to import failure")
+            self.api_key = api_key
+        
+        def Index(self, index_name):
+            return SimpleMockIndex()
+        
+        def list_indexes(self):
+            return []
 except Exception as e:
-    print(f"WARNING: Failed to import from pinecone package: {str(e)}")
+    print(f"WARNING: Failed to import from pinecone package due to unexpected error: {str(e)}")
+    print(f"Exception type: {type(e).__name__}")
     PINECONE_IMPORT_SUCCESS = False
     # Define a stub Pinecone class to avoid errors
     class Pinecone:
@@ -34,18 +68,73 @@ from app.services.embedding_service import EmbeddingService
 env_path = pathlib.Path(__file__).parent.parent.parent / '.env'
 print(f"Looking for .env file at: {env_path}")
 
+# Check if .env file exists and log some diagnostic info about it
+if os.path.exists(env_path):
+    try:
+        print(f"INFO: .env file found, size: {os.path.getsize(env_path)} bytes")
+        with open(env_path, 'r') as f:
+            env_content = f.readlines()
+            print(f"INFO: .env file contains {len(env_content)} lines")
+            # Print a sanitized version of the .env file for debugging
+            print(f"DEBUG: Sanitized .env content:")
+            for line in env_content:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    # Skip empty lines and comments
+                    continue
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    # Mask sensitive values
+                    if any(sensitive in key.upper() for sensitive in ['API_KEY', 'SECRET', 'PASSWORD', 'TOKEN']):
+                        print(f"  {key}=****")
+                    else:
+                        print(f"  {key}={value}")
+    except Exception as e:
+        print(f"ERROR reading .env file: {str(e)}")
+else:
+    print(f"WARNING: .env file not found at {env_path}")
+    # List environment directories to help debug
+    parent_dir = env_path.parent
+    print(f"Contents of parent directory ({parent_dir}):")
+    try:
+        for item in os.listdir(parent_dir):
+            print(f"  {item}")
+    except Exception as e:
+        print(f"ERROR listing parent directory: {str(e)}")
+
 # Load environment variables from the specified path
 load_dotenv(dotenv_path=env_path)
 
 # Check if environment variables are loaded
 openai_api_key = os.getenv('OPENAI_API_KEY')
 pinecone_api_key = os.getenv('PINECONE_API_KEY')
+pinecone_index = os.getenv('PINECONE_INDEX', 'radiant-documents')
+pinecone_cloud = os.getenv('PINECONE_CLOUD')
+pinecone_env = os.getenv('PINECONE_ENVIRONMENT')
+pinecone_region = os.getenv('PINECONE_REGION')
 
-print(f"OPENAI_API_KEY loaded: {'Yes' if openai_api_key else 'No'}")
-print(f"PINECONE_API_KEY loaded: {'Yes' if pinecone_api_key else 'No'}")
+# Generate a hash of the Pinecone API key for comparison without revealing the full key
+# This helps identify if different keys are being used between environments
 if pinecone_api_key:
-    print(f"PINECONE_API_KEY format: {pinecone_api_key[:5]}...{pinecone_api_key[-5:]} (length: {len(pinecone_api_key)})")
-    print(f"PINECONE_API_KEY type: {'New format (pcsk_)' if pinecone_api_key.startswith('pcsk_') else 'Old format'}")
+    key_hash = hashlib.md5(pinecone_api_key.encode()).hexdigest()
+    print(f"***** ENVIRONMENT DIAGNOSTICS *****")
+    print(f"PINECONE_API_KEY MD5 Hash: {key_hash}")
+    print(f"PINECONE_INDEX: {pinecone_index}")
+    print(f"PINECONE_CLOUD: {pinecone_cloud}")
+    print(f"PINECONE_REGION: {pinecone_region}")
+    print(f"PINECONE_ENVIRONMENT: {pinecone_env}")
+    print(f"Current working directory: {os.getcwd()}")
+    
+    # Print all environment variables (masking sensitive values)
+    print(f"ALL ENVIRONMENT VARIABLES:")
+    for key, value in sorted(os.environ.items()):
+        # Mask sensitive values
+        if any(sensitive in key.upper() for sensitive in ['API_KEY', 'SECRET', 'PASSWORD', 'TOKEN']):
+            print(f"  {key}=****")
+        else:
+            print(f"  {key}={value}")
+    
+    print(f"***** END DIAGNOSTICS *****")
 
 # Add Pinecone cloud/environment/region debug info
 pinecone_cloud = os.getenv('PINECONE_CLOUD')
@@ -105,6 +194,14 @@ class VectorDBService:
         """Initialize the Vector DB service, connected to the specified index and namespace"""
         try:
             print(f"Initializing VectorDBService with index_name='{index_name}', namespace='{namespace}'")
+            
+            # First, check if we're using a mock implementation
+            if not PINECONE_IMPORT_SUCCESS:
+                print(f"***********************************************************************")
+                print(f"* WARNING: USING MOCK PINECONE IMPLEMENTATION - VECTOR SEARCH IS LIMITED *")
+                print(f"* Documents uploaded in this environment won't be properly vectorized   *")
+                print(f"* Please fix the Pinecone import issue to enable full functionality     *")
+                print(f"***********************************************************************")
             
             # Get the OpenAI API key from environment variables
             self.openai_api_key = os.getenv('OPENAI_API_KEY')
@@ -207,6 +304,13 @@ class VectorDBService:
                 try:
                     # Check if index exists and create if needed
                     print(f"DEBUG: Ensuring index '{self.index_name}' exists")
+                    
+                    # First, list all available indexes to debug
+                    print(f"DEBUG: Listing all available Pinecone indexes in account...")
+                    all_indexes = self.pc.list_indexes()
+                    print(f"DEBUG: ALL AVAILABLE INDEXES: {all_indexes}")
+                    
+                    # Proceed with index creation check/process
                     self._ensure_index_exists()
                     
                     # Connect to the index
@@ -214,10 +318,22 @@ class VectorDBService:
                     self.pinecone_index = self.pc.Index(self.index_name)
                     print(f"DEBUG: Got Pinecone index reference")
                     
-                    # Test the connection
+                    # Test the connection and dump DETAILED stats
                     print(f"DEBUG: About to describe index stats")
                     stats = self.pinecone_index.describe_index_stats()
                     print(f"Index stats: {stats}")
+                    
+                    # Detailed analysis of the index stats to debug namespace issues
+                    print(f"DEBUG: DETAILED INDEX ANALYSIS")
+                    if 'namespaces' in stats:
+                        ns_count = len(stats['namespaces'])
+                        print(f"Found {ns_count} namespaces in index '{self.index_name}'")
+                        for ns_name, ns_data in stats['namespaces'].items():
+                            vector_count = ns_data.get('vector_count', 0)
+                            print(f"  Namespace '{ns_name}': {vector_count} vectors")
+                    else:
+                        print(f"No namespaces found in index '{self.index_name}'")
+                    
                     print(f"DEBUG: Successfully connected to Pinecone index '{self.index_name}'")
                     
                 except Exception as index_error:
