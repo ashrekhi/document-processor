@@ -474,7 +474,7 @@ class DocumentService:
             prompt = f"""
             You are an AI assistant that helps answer questions based on the provided document context.
             Answer the following question based ONLY on the information provided in the context below.
-            If you can't find the answer in the context, say "I couldn't find information about that in the documents in folder '{folder}'."
+            If you can't find the answer in the context, say "I don't see specific information about that in the provided documents. The documents in folder '{folder}' appear to contain information about [brief summary of what IS in the documents based on the context]."
             Don't use prior knowledge. Be concise and to the point.
             
             Context:
