@@ -8,8 +8,6 @@ import {
   FormControl,
   FormLabel,
   FormGroup,
-  FormControlLabel,
-  Checkbox,
   Divider,
   CircularProgress,
   Alert,
@@ -18,25 +16,17 @@ import {
   Select,
   MenuItem,
   InputLabel,
-  Tab,
-  Tabs,
-  Radio,
-  RadioGroup,
 } from '@mui/material';
 import { Send as SendIcon, QuestionAnswer as QuestionIcon } from '@mui/icons-material';
-import { listDocuments, askQuestion, getFolders } from '../services/api';
+import { askQuestion, getFolders } from '../services/api';
 
 function QuestionAnswering() {
-  const [documents, setDocuments] = useState([]);
   const [folders, setFolders] = useState([]);
-  const [selectedDocuments, setSelectedDocuments] = useState([]);
   const [selectedFolder, setSelectedFolder] = useState('');
-  const [queryMode, setQueryMode] = useState('documents'); // 'documents' or 'folder'
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [documentsLoading, setDocumentsLoading] = useState(true);
   const [foldersLoading, setFoldersLoading] = useState(true);
   const [selectedModel, setSelectedModel] = useState('gpt-3.5-turbo');
 
@@ -47,20 +37,6 @@ function QuestionAnswering() {
   ];
 
   useEffect(() => {
-    const fetchDocuments = async () => {
-      setDocumentsLoading(true);
-      
-      try {
-        const data = await listDocuments();
-        setDocuments(data);
-      } catch (error) {
-        console.error('Error fetching documents:', error);
-        setError('Failed to load documents. Please try again later.');
-      } finally {
-        setDocumentsLoading(false);
-      }
-    };
-
     const fetchFolders = async () => {
       setFoldersLoading(true);
       
@@ -79,26 +55,11 @@ function QuestionAnswering() {
       }
     };
 
-    fetchDocuments();
     fetchFolders();
   }, []);
 
-  const handleDocumentChange = (event) => {
-    const docId = event.target.value;
-    
-    if (event.target.checked) {
-      setSelectedDocuments([...selectedDocuments, docId]);
-    } else {
-      setSelectedDocuments(selectedDocuments.filter(id => id !== docId));
-    }
-  };
-
   const handleFolderChange = (event) => {
     setSelectedFolder(event.target.value);
-  };
-
-  const handleQueryModeChange = (event) => {
-    setQueryMode(event.target.value);
   };
 
   const handleModelChange = (event) => {
@@ -113,12 +74,7 @@ function QuestionAnswering() {
       return;
     }
     
-    if (queryMode === 'documents' && selectedDocuments.length === 0) {
-      setError('Please select at least one document');
-      return;
-    }
-    
-    if (queryMode === 'folder' && !selectedFolder) {
+    if (!selectedFolder) {
       setError('Please select a folder');
       return;
     }
@@ -129,18 +85,12 @@ function QuestionAnswering() {
     
     try {
       console.log('Starting question submission...');
-      
-      // Log which documents are being used
-      if (queryMode === 'documents') {
-        console.log('Selected document IDs:', selectedDocuments);
-      } else {
-        console.log('Selected folder:', selectedFolder);
-      }
+      console.log('Selected folder:', selectedFolder);
       
       const response = await askQuestion(
         question,
-        queryMode === 'documents' ? selectedDocuments : null,
-        queryMode === 'folder' ? selectedFolder : null,
+        null,
+        selectedFolder,
         selectedModel
       );
       
@@ -175,88 +125,41 @@ function QuestionAnswering() {
       
       <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 3 }}>
         <Paper elevation={2} sx={{ p: 3, flex: 1 }}>
-          <FormControl component="fieldset" sx={{ mb: 2, width: '100%' }}>
-            <FormLabel component="legend">Select Query Mode:</FormLabel>
-            <RadioGroup
-              row
-              value={queryMode}
-              onChange={handleQueryModeChange}
-            >
-              <FormControlLabel value="documents" control={<Radio />} label="By Documents" />
-              <FormControlLabel value="folder" control={<Radio />} label="By Folder" />
-            </RadioGroup>
-          </FormControl>
+          <Typography variant="h6" gutterBottom>
+            Ask Questions by Folder
+          </Typography>
           
           <Divider sx={{ my: 2 }} />
           
-          {queryMode === 'documents' ? (
-            <>
-              <Typography variant="h6" gutterBottom>
-                Select Documents
-              </Typography>
-              
-              {documentsLoading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
-                  <CircularProgress />
-                </Box>
-              ) : documents.length === 0 ? (
-                <Alert severity="info">
-                  No documents found. Please upload documents first.
-                </Alert>
-              ) : (
-                <FormControl component="fieldset" sx={{ width: '100%' }}>
-                  <FormLabel component="legend">Choose documents to query:</FormLabel>
-                  <FormGroup>
-                    {documents.map((doc) => (
-                      <FormControlLabel
-                        key={doc.id}
-                        control={
-                          <Checkbox
-                            checked={selectedDocuments.includes(doc.id)}
-                            onChange={handleDocumentChange}
-                            value={doc.id}
-                          />
-                        }
-                        label={`${doc.filename} (${doc.source || doc.folder})`}
-                      />
-                    ))}
-                  </FormGroup>
-                </FormControl>
-              )}
-            </>
+          <Typography variant="h6" gutterBottom>
+            Select Folder
+          </Typography>
+          
+          {foldersLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
+              <CircularProgress />
+            </Box>
+          ) : folders.length === 0 ? (
+            <Alert severity="info">
+              No folders found. Please create folders first.
+            </Alert>
           ) : (
-            <>
-              <Typography variant="h6" gutterBottom>
-                Select Folder
-              </Typography>
-              
-              {foldersLoading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
-                  <CircularProgress />
-                </Box>
-              ) : folders.length === 0 ? (
-                <Alert severity="info">
-                  No folders found. Please create folders first.
-                </Alert>
-              ) : (
-                <FormControl fullWidth>
-                  <InputLabel id="folder-select-label">Folder</InputLabel>
-                  <Select
-                    labelId="folder-select-label"
-                    id="folder-select"
-                    value={selectedFolder}
-                    label="Folder"
-                    onChange={handleFolderChange}
-                  >
-                    {folders.map((folder) => (
-                      <MenuItem key={folder} value={folder}>
-                        {folder}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              )}
-            </>
+            <FormControl fullWidth>
+              <InputLabel id="folder-select-label">Folder</InputLabel>
+              <Select
+                labelId="folder-select-label"
+                id="folder-select"
+                value={selectedFolder}
+                label="Folder"
+                onChange={handleFolderChange}
+              >
+                {folders.map((folder) => (
+                  <MenuItem key={folder} value={folder}>
+                    {folder}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           )}
           
           <Divider sx={{ my: 2 }} />
@@ -288,9 +191,7 @@ function QuestionAnswering() {
               margin="normal"
               multiline
               rows={3}
-              placeholder={queryMode === 'documents' 
-                ? "Ask a question about the selected documents..." 
-                : "Ask a question about documents in the selected folder..."}
+              placeholder="Ask a question about documents in the selected folder..."
             />
             
             <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end' }}>
@@ -298,9 +199,7 @@ function QuestionAnswering() {
                 type="submit"
                 variant="contained"
                 color="primary"
-                disabled={loading || 
-                  (queryMode === 'documents' && (documentsLoading || documents.length === 0)) ||
-                  (queryMode === 'folder' && (foldersLoading || folders.length === 0))}
+                disabled={loading || foldersLoading || folders.length === 0}
                 startIcon={loading ? <CircularProgress size={20} /> : <SendIcon />}
               >
                 {loading ? 'Processing...' : 'Ask Question'}
@@ -332,10 +231,7 @@ function QuestionAnswering() {
                   <Divider sx={{ mb: 2 }} />
                   
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                    {queryMode === 'documents' 
-                      ? `Model: ${models.find(m => m.id === selectedModel)?.name || selectedModel} • Documents: ${selectedDocuments.length}`
-                      : `Model: ${models.find(m => m.id === selectedModel)?.name || selectedModel} • Folder: ${selectedFolder}`
-                    }
+                    Model: {models.find(m => m.id === selectedModel)?.name || selectedModel} • Folder: {selectedFolder}
                   </Typography>
                   
                   <Typography variant="body1" sx={{ whiteSpace: 'pre-line' }}>
