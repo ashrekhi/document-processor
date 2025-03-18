@@ -414,8 +414,8 @@ class VectorDBService:
             traceback.print_exc()
             raise ValueError(f"Failed to store document chunks: {str(e)}")
     
-    def search_similar_chunks(self, query: str, top_k: int = 5, filter_doc_ids: List[str] = None, namespace: str = None) -> List[Dict[str, Any]]:
-        """Search for similar chunks to a query"""
+    def search_similar_chunks(self, query: str, top_k: int = 5, namespace: str = None) -> List[Dict[str, Any]]:
+        """Search for similar chunks to a query in a specific namespace"""
         if not self.pinecone_index or not self.openai_client:
             error_msg = "Vector database not initialized. Cannot perform search."
             print(f"ERROR: {error_msg}")
@@ -425,7 +425,7 @@ class VectorDBService:
             print(f"{'='*80}")
             print(f"VECTOR SEARCH: Starting search operation at {time.strftime('%H:%M:%S')}")
             print(f"VECTOR SEARCH: Searching for chunks similar to: '{query[:50]}...' (query length: {len(query)})")
-            print(f"VECTOR SEARCH: Parameters: top_k={top_k}, namespace={namespace}, filter_doc_ids={filter_doc_ids if filter_doc_ids else 'None'}")
+            print(f"VECTOR SEARCH: Parameters: top_k={top_k}, namespace={namespace}")
             print(f"VECTOR SEARCH: Current class implementation: {self.pinecone_index.__class__.__name__}")
             
             # Get index stats to understand what namespaces exist and vector counts
@@ -467,18 +467,6 @@ class VectorDBService:
             print(f"VECTOR SEARCH: Generated query embedding in {embedding_time:.2f} seconds")
             print(f"VECTOR SEARCH: Embedding dimension: {len(query_embedding)}")
             
-            # Prepare filter if doc_ids are provided
-            filter_dict = None
-            if filter_doc_ids:
-                filter_dict = {"doc_id": {"$in": filter_doc_ids}}
-                print(f"VECTOR SEARCH: Using filter: {filter_dict}")
-                print(f"VECTOR SEARCH: Filtering to {len(filter_doc_ids)} document IDs")
-                
-                # Warn if filter might be causing issues
-                if len(filter_doc_ids) > 20:
-                    print(f"VECTOR SEARCH WARNING: Large number of document IDs in filter ({len(filter_doc_ids)})")
-                    print(f"VECTOR SEARCH: Consider splitting query into batches if memory issues occur")
-            
             # Check if we should try the root namespace as fallback
             try_namespaces = [namespace]
             if namespace is None:
@@ -503,7 +491,6 @@ class VectorDBService:
                 vector=query_embedding,
                 top_k=top_k,
                 include_metadata=True,
-                filter=filter_dict,
                 namespace=namespace
             )
             search_time = time.time() - search_start_time
@@ -524,7 +511,6 @@ class VectorDBService:
                             vector=query_embedding,
                             top_k=top_k,
                             include_metadata=True,
-                            filter=filter_dict,
                             namespace="root"
                         )
                         root_search_time = time.time() - root_search_start_time
@@ -736,7 +722,7 @@ class VectorDBService:
             traceback.print_exc()
             raise ValueError(f"Failed to delete namespace: {str(e)}")
     
-    def search_across_namespaces(self, query: str, top_k: int = 5, filter_doc_ids: List[str] = None) -> List[Dict[str, Any]]:
+    def search_across_namespaces(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """Search for similar chunks across all namespaces"""
         if not self.pinecone_index or not self.openai_client:
             error_msg = "Vector database not initialized. Cannot search across namespaces."
@@ -745,7 +731,7 @@ class VectorDBService:
         
         try:
             print(f"VECTOR CROSS-NAMESPACE SEARCH: Searching for chunks similar to: '{query[:50]}...' (query length: {len(query)})")
-            print(f"VECTOR CROSS-NAMESPACE SEARCH: Parameters: top_k={top_k}, filter_doc_ids={filter_doc_ids if filter_doc_ids else 'None'}")
+            print(f"VECTOR CROSS-NAMESPACE SEARCH: Parameters: top_k={top_k}")
             
             # Get all namespaces
             namespaces = self.list_namespaces()
@@ -762,12 +748,6 @@ class VectorDBService:
             embedding_time = time.time() - query_start_time
             print(f"VECTOR CROSS-NAMESPACE SEARCH: Generated query embedding in {embedding_time:.2f} seconds")
             
-            # Prepare filter if doc_ids are provided
-            filter_dict = None
-            if filter_doc_ids:
-                filter_dict = {"doc_id": {"$in": filter_doc_ids}}
-                print(f"VECTOR CROSS-NAMESPACE SEARCH: Using filter: {filter_dict}")
-            
             # Search in each namespace
             all_results = []
             all_start_time = time.time()
@@ -782,7 +762,6 @@ class VectorDBService:
                         vector=query_embedding,
                         top_k=top_k,
                         include_metadata=True,
-                        filter=filter_dict,
                         namespace=namespace
                     )
                     

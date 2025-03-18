@@ -173,12 +173,6 @@ async def unified_ask_question(request: QuestionRequest) -> QuestionResponse:
     print(f"ENDPOINT /ask: Model: '{request.model}'")
     print(f"ENDPOINT /ask: Folder: '{request.folder}'")
     
-    # For backward compatibility, log document IDs if present
-    if hasattr(request, 'document_ids') and request.document_ids:
-        print(f"ENDPOINT /ask WARNING: Using deprecated 'document_ids' field. The system now operates on folder-based queries only.")
-    if hasattr(request, 'doc_ids') and request.doc_ids:
-        print(f"ENDPOINT /ask WARNING: Using deprecated 'doc_ids' field. The system now operates on folder-based queries only.")
-    
     # Validate the request
     if not request.question or request.question.strip() == "":
         error_msg = "Question cannot be empty"
