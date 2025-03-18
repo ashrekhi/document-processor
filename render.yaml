@@ -32,7 +32,6 @@ services:
   - type: web
     name: document-processor-frontend
     env: static
-    region: oregon # You can change this to a region closer to your users
     buildCommand: cd frontend && npm install && npm run build
     staticPublishPath: frontend/build
     envVars:
