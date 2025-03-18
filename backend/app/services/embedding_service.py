@@ -2,9 +2,41 @@ from typing import List, Optional, Dict, Any
 import os
 import numpy as np
 from openai import OpenAI
-import pinecone
 import logging
 import time
+
+# Import Pinecone with proper handling for import errors
+try:
+    from pinecone import Pinecone, ServerlessSpec
+    PINECONE_IMPORT_SUCCESS = True
+    print(f"EmbeddingService: Pinecone import succeeded")
+except ImportError as e:
+    print(f"EmbeddingService: WARNING - Pinecone import failed: {str(e)}")
+    PINECONE_IMPORT_SUCCESS = False
+    # Define stub classes for Pinecone
+    class Pinecone:
+        def __init__(self, api_key, **kwargs):
+            print("WARNING: Using mock Pinecone class")
+            
+        def list_indexes(self):
+            return {"indexes": []}
+            
+        def Index(self, index_name):
+            class MockIndex:
+                def describe_index_stats(self):
+                    return {"namespaces": {}}
+                    
+                def query(self, **kwargs):
+                    class MockResult:
+                        def __init__(self):
+                            self.matches = []
+                    return MockResult()
+            return MockIndex()
+            
+    class ServerlessSpec:
+        def __init__(self, cloud, region):
+            self.cloud = cloud
+            self.region = region
 
 class EmbeddingService:
     def __init__(self):
@@ -37,16 +69,18 @@ class EmbeddingService:
         # Initialize Pinecone with proper error handling
         try:
             self.logger.info(f"Initializing Pinecone with cloud: {self.cloud}, region: {self.region}")
-            # Initialize Pinecone with the newer client
-            pc = pinecone.Pinecone(api_key=self.api_key, cloud=self.cloud)
+            
+            # Initialize Pinecone with the new API
+            pc = Pinecone(api_key=self.api_key, cloud=self.cloud)
             self.pinecone_available = True
             
             # Check if index exists and connect to it
             try:
-                # Get list of indexes (in newer clients we'd check differently)
+                # Get list of indexes
                 self.logger.info("Checking available Pinecone indexes...")
-                # In newer Pinecone client, we'd list indexes differently
-                available_indexes = [index.name for index in pc.list_indexes()]
+                
+                # List indexes with the new API format
+                available_indexes = [idx['name'] for idx in pc.list_indexes().get('indexes', [])]
                 self.logger.info(f"Available Pinecone indexes: {available_indexes}")
                 
                 if self.index_name not in available_indexes:
@@ -56,14 +90,15 @@ class EmbeddingService:
                         name=self.index_name,
                         dimension=1536,  # dimension for text-embedding-ada-002
                         metric="cosine",
-                        spec=pinecone.ServerlessSpec(
+                        spec=ServerlessSpec(
                             cloud=self.cloud,
                             region=self.region
                         )
                     )
                 
-                # Connect to the index with the newer client
+                # Connect to the index with the new API
                 self.index = pc.Index(self.index_name)
+                
                 self.logger.info(f"Connected to Pinecone index: {self.index_name}")
                 
                 # Test the connection

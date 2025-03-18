@@ -14,6 +14,7 @@ try:
     from pinecone import Pinecone, ServerlessSpec
     PINECONE_IMPORT_SUCCESS = True
     print("Successfully imported pinecone package")
+    
     # Print the imported Pinecone version to help with debugging
     import importlib.metadata
     try:
@@ -45,7 +46,12 @@ except ImportError as e:
             return SimpleMockIndex()
         
         def list_indexes(self):
-            return []
+            return {"indexes": []}
+            
+    class ServerlessSpec:
+        def __init__(self, cloud, region):
+            self.cloud = cloud
+            self.region = region
 except Exception as e:
     print(f"WARNING: Failed to import from pinecone package due to unexpected error: {str(e)}")
     print(f"Exception type: {type(e).__name__}")
@@ -60,7 +66,7 @@ except Exception as e:
             return SimpleMockIndex()
         
         def list_indexes(self):
-            return []
+            return {"indexes": []}
 
 from app.services.embedding_service import EmbeddingService
 
@@ -283,7 +289,7 @@ class VectorDBService:
                 print(f"Initializing Pinecone with new client...")
                 print(f"DEBUG: About to initialize Pinecone with API key starting with: {self.pinecone_api_key[:5]}...")
                 
-                # Initialize Pinecone based on API key format
+                # Initialize Pinecone with the new API
                 if self.is_new_api_key:
                     if self.pinecone_cloud:
                         print(f"DEBUG: Using cloud parameter in Pinecone initialization: {self.pinecone_cloud}")
@@ -382,11 +388,10 @@ class VectorDBService:
             indexes = self.pc.list_indexes()
             print(f"DEBUG: Found indexes: {indexes}")
             
-            # Check if the index already exists by looking at the 'indexes' list
-            # In the newer Pinecone API, the format has changed
+            # Check if the index already exists
             index_exists = False
             
-            # New format returns a dict with 'indexes' key containing a list of objects with 'name' field
+            # New API format returns a dict with 'indexes' key
             if isinstance(indexes, dict) and 'indexes' in indexes:
                 index_list = indexes['indexes']
                 for idx in index_list:
@@ -394,20 +399,14 @@ class VectorDBService:
                         index_exists = True
                         print(f"DEBUG: Found existing index '{self.index_name}' in indexes list")
                         break
-            # Old format returns a list of string names
-            elif isinstance(indexes, list):
-                index_exists = self.index_name in indexes
-                if index_exists:
-                    print(f"DEBUG: Found existing index '{self.index_name}' in indexes list (old format)")
             
             # Fix the index existence check - the log shows we're incorrectly reporting False even when index exists
             if not index_exists:
                 # Double check by looking at the raw response for the index name
-                if isinstance(indexes, dict) and 'indexes' in indexes:
-                    raw_response = str(indexes)
-                    if f"'name': '{self.index_name}'" in raw_response or f'"name": "{self.index_name}"' in raw_response:
-                        index_exists = True
-                        print(f"DEBUG: Found existing index '{self.index_name}' in raw response")
+                raw_response = str(indexes)
+                if f"'name': '{self.index_name}'" in raw_response or f'"name": "{self.index_name}"' in raw_response:
+                    index_exists = True
+                    print(f"DEBUG: Found existing index '{self.index_name}' in raw response")
             
             print(f"DEBUG: Index '{self.index_name}' exists: {index_exists}")
             

@@ -10,9 +10,15 @@ services:
       python -m venv clean_venv &&
       . clean_venv/bin/activate &&
       pip install --upgrade pip &&
-      pip uninstall -y pinecone-client &&
-      pip install --no-cache-dir "pinecone>=2.2.1" &&
-      pip install --no-cache-dir -r requirements.txt
+      # Uninstall any existing pinecone packages
+      pip uninstall -y pinecone-client pinecone &&
+      # Install the specific version of pinecone that we know works with the new API
+      pip install --no-cache-dir "pinecone==2.2.2" &&
+      # Install dependencies
+      pip install --no-cache-dir -r requirements.txt &&
+      # Print diagnostics
+      pip list | grep pinecone &&
+      python -c "import pinecone; print('Pinecone imported successfully'); print('Package version:', getattr(pinecone, '__version__', 'unknown')); print('Has Pinecone class:', hasattr(pinecone, 'Pinecone'))"
     startCommand: cd backend && . clean_venv/bin/activate && gunicorn -k uvicorn.workers.UvicornWorker -w 1 app.main:app --bind 0.0.0.0:$PORT
     envVars:
       - key: OPENAI_API_KEY
