@@ -5,6 +5,7 @@
   "dependencies": {
     "@emotion/react": "^11.11.1",
     "@emotion/styled": "^11.11.0",
+    "@fontsource/roboto": "^5.2.5",
     "@mui/icons-material": "^5.14.16",
     "@mui/material": "^5.14.16",
     "axios": "^1.6.0",
@@ -37,4 +38,4 @@
       "last 1 safari version"
     ]
   }
-} 
+}
