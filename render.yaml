@@ -124,7 +124,7 @@ except Exception as e:
       - key: PINECONE_REGION
         value: "us-east-1"
       - key: ALLOW_DEV_FALLBACK
-        value: "true"
+        value: "false"
       - key: PORT
         value: 8000
       - key: PYTHON_VERSION
