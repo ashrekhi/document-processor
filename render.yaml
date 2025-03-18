@@ -21,12 +21,16 @@ services:
         sync: false
       - key: PINECONE_API_KEY
         sync: false
-      - key: PINECONE_ENVIRONMENT
+      - key: PINECONE_CLOUD
+        sync: false
+      - key: PINECONE_REGION
         sync: false
       - key: PINECONE_INDEX
         sync: false
       - key: ALLOWED_ORIGINS
         value: https://document-processor-frontend.onrender.com
+      - key: ALLOW_DEV_FALLBACK
+        value: "false"
 
   # Frontend static site
   - type: web
