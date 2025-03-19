@@ -400,6 +400,30 @@ class VectorDBService:
                     print(f"DEBUG: Listing all available Pinecone indexes in account...")
                     all_indexes = self.pc.list_indexes()
                     print(f"DEBUG: ALL AVAILABLE INDEXES: {all_indexes}")
+                    print(f"DEBUG: Type of all_indexes: {type(all_indexes)}")
+                    
+                    # Print index list structure for diagnosis
+                    if isinstance(all_indexes, dict) and 'indexes' in all_indexes:
+                        print(f"DEBUG: 'indexes' key found in response")
+                        print(f"DEBUG: Type of all_indexes['indexes']: {type(all_indexes['indexes'])}")
+                        print(f"DEBUG: Length of all_indexes['indexes']: {len(all_indexes['indexes'])}")
+                        
+                        # Print each index's structure
+                        for i, idx in enumerate(all_indexes['indexes']):
+                            print(f"DEBUG: Index {i} type: {type(idx)}")
+                            if isinstance(idx, dict):
+                                print(f"DEBUG: Index {i} keys: {idx.keys()}")
+                                if 'name' in idx:
+                                    print(f"DEBUG: Index {i} name: {idx['name']}")
+                    else:
+                        print(f"DEBUG: No 'indexes' key or not a dict response. Type: {type(all_indexes)}")
+                        if isinstance(all_indexes, list):
+                            print(f"DEBUG: Index list contains {len(all_indexes)} items")
+                    
+                    # Direct check for our target index in response
+                    target_index_str = f"'name': '{self.index_name}'"
+                    if target_index_str in str(all_indexes):
+                        print(f"DEBUG: Found target index '{self.index_name}' in raw response string")
                     
                     # Proceed with index creation check/process
                     self._ensure_index_exists()
@@ -419,21 +443,25 @@ class VectorDBService:
                     
                     # Test the connection and dump DETAILED stats
                     print(f"DEBUG: About to describe index stats")
-                    stats = self.pinecone_index.describe_index_stats()
-                    print(f"Index stats: {stats}")
-                    
-                    # Detailed analysis of the index stats to debug namespace issues
-                    print(f"DEBUG: DETAILED INDEX ANALYSIS")
-                    if 'namespaces' in stats:
-                        ns_count = len(stats['namespaces'])
-                        print(f"Found {ns_count} namespaces in index '{self.index_name}'")
-                        for ns_name, ns_data in stats['namespaces'].items():
-                            vector_count = ns_data.get('vector_count', 0)
-                            print(f"  Namespace '{ns_name}': {vector_count} vectors")
-                    else:
-                        print(f"No namespaces found in index '{self.index_name}'")
-                    
-                    print(f"DEBUG: Successfully connected to Pinecone index '{self.index_name}'")
+                    try:
+                        stats = self.pinecone_index.describe_index_stats()
+                        print(f"Index stats: {stats}")
+                        
+                        # Detailed analysis of the index stats to debug namespace issues
+                        print(f"DEBUG: DETAILED INDEX ANALYSIS")
+                        if 'namespaces' in stats:
+                            ns_count = len(stats['namespaces'])
+                            print(f"Found {ns_count} namespaces in index '{self.index_name}'")
+                            for ns_name, ns_data in stats['namespaces'].items():
+                                vector_count = ns_data.get('vector_count', 0)
+                                print(f"  Namespace '{ns_name}': {vector_count} vectors")
+                        else:
+                            print(f"No namespaces found in index '{self.index_name}'")
+                        
+                        print(f"DEBUG: Successfully connected to Pinecone index '{self.index_name}'")
+                    except Exception as stats_error:
+                        print(f"WARNING: Error getting index stats: {str(stats_error)}")
+                        print(f"DEBUG: Will attempt to continue anyway")
                     
                 except Exception as index_error:
                     print(f"ERROR: Failed to connect to Pinecone index: {str(index_error)}")
@@ -490,14 +518,19 @@ class VectorDBService:
             indexes = self.pc.list_indexes()
             print(f"DEBUG: Raw index list response: {indexes}")
             
-            # Extract available indexes
+            # Extract available indexes - FIX EXTRACTION LOGIC
             available_indexes = []
             if PINECONE_NEW_API:
                 # New API format returns a dict with 'indexes' key
                 if isinstance(indexes, dict) and 'indexes' in indexes:
                     index_list = indexes['indexes']
                     print(f"DEBUG: V2 API - Found {len(index_list)} indexes: {index_list}")
-                    available_indexes = [idx['name'] for idx in index_list if isinstance(idx, dict) and 'name' in idx]
+                    # Fix: Directly access index names without filtering
+                    for idx in index_list:
+                        if isinstance(idx, dict) and 'name' in idx:
+                            idx_name = idx['name']
+                            available_indexes.append(idx_name)
+                            print(f"DEBUG: Found index: '{idx_name}'")
             else:
                 # Old API returns a list of string names
                 if isinstance(indexes, list):
@@ -507,7 +540,23 @@ class VectorDBService:
                 elif isinstance(indexes, dict) and 'indexes' in indexes:
                     index_list = indexes['indexes']
                     print(f"DEBUG: V1 Adapter - Found {len(index_list)} indexes: {index_list}")
-                    available_indexes = [idx['name'] for idx in index_list if isinstance(idx, dict) and 'name' in idx]
+                    # Fix: Use more robust extraction
+                    for idx in index_list:
+                        if isinstance(idx, dict) and 'name' in idx:
+                            idx_name = idx['name']
+                            available_indexes.append(idx_name)
+                            print(f"DEBUG: Found index: '{idx_name}'")
+            
+            # Additional fallback - extract directly from raw response if still empty
+            if not available_indexes and isinstance(indexes, dict):
+                print(f"DEBUG: Using fallback extraction method for indexes")
+                raw_str = str(indexes)
+                import re
+                # Look for name patterns in the string representation
+                name_matches = re.findall(r"'name'\s*:\s*'([^']+)'", raw_str)
+                if name_matches:
+                    available_indexes = name_matches
+                    print(f"DEBUG: Extracted indexes using regex: {available_indexes}")
             
             print(f"DEBUG: Available indexes: {available_indexes}")
             
@@ -592,6 +641,13 @@ class VectorDBService:
                     error_msg = str(create_err).lower()
                     print(f"Error creating index: {str(create_err)}")
                     
+                    # Fix: Better detection of index already exists from error message
+                    if "already_exists" in error_msg or "already exists" in error_msg or "409" in error_msg:
+                        print(f"DEBUG: Index '{self.index_name}' already exists (from error message)")
+                        print(f"DEBUG: This means our index detection logic missed it, but the index does exist")
+                        index_exists = True
+                        return
+                    
                     # Check if it's a quota-related error
                     if any(term in error_msg for term in ["quota", "limit", "max pods", "reached"]):
                         print(f"QUOTA ERROR: Unable to create new index due to account limitations")
@@ -617,7 +673,7 @@ class VectorDBService:
                 print(f"Pinecone index '{self.index_name}' already exists.")
         except Exception as e:
             # Check if the error is a 409 Conflict (index already exists)
-            if "409" in str(e) and "ALREADY_EXISTS" in str(e):
+            if "409" in str(e) and ("ALREADY_EXISTS" in str(e) or "already exists" in str(e).lower()):
                 print(f"Index '{self.index_name}' already exists (verified from error response).")
                 # This is actually not an error, the index exists which is what we want
                 return
@@ -631,14 +687,21 @@ class VectorDBService:
                 indexes = self.pc.list_indexes()
                 available_indexes = []
                 
-                if PINECONE_NEW_API:
-                    if isinstance(indexes, dict) and 'indexes' in indexes:
-                        available_indexes = [idx['name'] for idx in indexes['indexes'] if isinstance(idx, dict) and 'name' in idx]
-                else:
-                    if isinstance(indexes, list):
-                        available_indexes = indexes
-                    elif isinstance(indexes, dict) and 'indexes' in indexes:
-                        available_indexes = [idx['name'] for idx in indexes['indexes'] if isinstance(idx, dict) and 'name' in idx]
+                # Fix: More robust index extraction for recovery
+                if isinstance(indexes, dict) and 'indexes' in indexes:
+                    for idx in indexes['indexes']:
+                        if isinstance(idx, dict) and 'name' in idx:
+                            available_indexes.append(idx['name'])
+                elif isinstance(indexes, list):
+                    available_indexes = indexes
+                
+                # Fallback to regex if needed
+                if not available_indexes and isinstance(indexes, dict):
+                    raw_str = str(indexes)
+                    import re
+                    name_matches = re.findall(r"'name'\s*:\s*'([^']+)'", raw_str)
+                    if name_matches:
+                        available_indexes = name_matches
                 
                 if available_indexes:
                     print(f"ERROR RECOVERY: Using existing index '{available_indexes[0]}' instead of '{self.index_name}'")

@@ -172,7 +172,26 @@ class EmbeddingService:
                     try:
                         indexes_response = pc.list_indexes()
                         self.logger.info(f"Raw Pinecone index list response: {indexes_response}")
-                        available_indexes = [idx['name'] for idx in indexes_response.get('indexes', [])]
+                        
+                        # Improved extraction of available indexes
+                        available_indexes = []
+                        if isinstance(indexes_response, dict) and 'indexes' in indexes_response:
+                            for idx in indexes_response.get('indexes', []):
+                                if isinstance(idx, dict) and 'name' in idx:
+                                    available_indexes.append(idx['name'])
+                                    self.logger.info(f"Found index: '{idx['name']}'")
+                        
+                        # Additional fallback extraction if needed
+                        if not available_indexes:
+                            self.logger.info("Using regex fallback to extract index names")
+                            import re
+                            raw_response = str(indexes_response)
+                            name_matches = re.findall(r"'name'\s*:\s*'([^']+)'", raw_response)
+                            if name_matches:
+                                available_indexes = name_matches
+                                self.logger.info(f"Extracted indexes using regex: {available_indexes}")
+                        
+                        self.logger.info(f"Available indexes: {available_indexes}")
                     except Exception as list_err:
                         self.logger.error(f"Error listing indexes with V2 API: {str(list_err)}")
                         # Try again with a short delay
@@ -180,7 +199,23 @@ class EmbeddingService:
                         try:
                             indexes_response = pc.list_indexes()
                             self.logger.info(f"Retry - Raw Pinecone index list response: {indexes_response}")
-                            available_indexes = [idx['name'] for idx in indexes_response.get('indexes', [])]
+                            
+                            # Same improved extraction on retry
+                            available_indexes = []
+                            if isinstance(indexes_response, dict) and 'indexes' in indexes_response:
+                                for idx in indexes_response.get('indexes', []):
+                                    if isinstance(idx, dict) and 'name' in idx:
+                                        available_indexes.append(idx['name'])
+                            
+                            # Regex fallback for retry
+                            if not available_indexes:
+                                import re
+                                raw_response = str(indexes_response)
+                                name_matches = re.findall(r"'name'\s*:\s*'([^']+)'", raw_response)
+                                if name_matches:
+                                    available_indexes = name_matches
+                            
+                            self.logger.info(f"Available indexes after retry: {available_indexes}")
                         except Exception as retry_err:
                             self.logger.error(f"Retry failed - Error listing indexes: {str(retry_err)}")
                             available_indexes = []
@@ -189,12 +224,25 @@ class EmbeddingService:
                     try:
                         indexes_resp = pc.list_indexes()
                         self.logger.info(f"Raw Pinecone index list response (V1): {indexes_resp}")
+                        
+                        # Improved extraction for V1 API
+                        available_indexes = []
                         if isinstance(indexes_resp, dict) and 'indexes' in indexes_resp:
-                            available_indexes = [idx['name'] for idx in indexes_resp.get('indexes', [])]
+                            for idx in indexes_resp.get('indexes', []):
+                                if isinstance(idx, dict) and 'name' in idx:
+                                    available_indexes.append(idx['name'])
                         elif isinstance(indexes_resp, list):
                             available_indexes = indexes_resp
-                        else:
-                            available_indexes = []
+                        
+                        # Fallback to regex if needed for V1 API
+                        if not available_indexes and isinstance(indexes_resp, dict):
+                            import re
+                            raw_response = str(indexes_resp)
+                            name_matches = re.findall(r"'name'\s*:\s*'([^']+)'", raw_response)
+                            if name_matches:
+                                available_indexes = name_matches
+                        
+                        self.logger.info(f"Available indexes: {available_indexes}")
                     except Exception as list_err:
                         self.logger.error(f"Error listing indexes with V1 API: {str(list_err)}")
                         # Try again with a short delay
@@ -202,27 +250,58 @@ class EmbeddingService:
                         try:
                             indexes_resp = pc.list_indexes()
                             self.logger.info(f"Retry - Raw Pinecone index list response (V1): {indexes_resp}")
+                            
+                            # Same improved extraction on retry for V1
+                            available_indexes = []
                             if isinstance(indexes_resp, dict) and 'indexes' in indexes_resp:
-                                available_indexes = [idx['name'] for idx in indexes_resp.get('indexes', [])]
+                                for idx in indexes_resp.get('indexes', []):
+                                    if isinstance(idx, dict) and 'name' in idx:
+                                        available_indexes.append(idx['name'])
                             elif isinstance(indexes_resp, list):
                                 available_indexes = indexes_resp
-                            else:
-                                available_indexes = []
+                            
+                            # Fallback to regex if needed for V1 retry
+                            if not available_indexes and isinstance(indexes_resp, dict):
+                                import re
+                                raw_response = str(indexes_resp)
+                                name_matches = re.findall(r"'name'\s*:\s*'([^']+)'", raw_response)
+                                if name_matches:
+                                    available_indexes = name_matches
+                            
+                            self.logger.info(f"Available indexes after retry: {available_indexes}")
                         except Exception as retry_err:
                             self.logger.error(f"Retry failed - Error listing indexes: {str(retry_err)}")
                             available_indexes = []
                         
                 self.logger.info(f"Available Pinecone indexes: {available_indexes}")
                 self.logger.info(f"Checking for index name: '{self.index_name}'")
-                self.logger.info(f"Case-sensitive match found: {self.index_name in available_indexes}")
+                index_exists = self.index_name in available_indexes
+                self.logger.info(f"Case-sensitive match found: {index_exists}")
                 
                 # Check also for case-insensitive matches which might be causing confusion
+                case_insensitive_match = None
                 for idx in available_indexes:
                     if idx.lower() == self.index_name.lower() and idx != self.index_name:
+                        case_insensitive_match = idx
                         self.logger.warning(f"Found case-insensitive match: '{idx}' vs target '{self.index_name}'")
                         self.logger.warning(f"This might be causing confusion - consider using the exact case")
                 
-                if self.index_name not in available_indexes:
+                # If the exact index doesn't exist but a case-insensitive match does, use that instead
+                if not index_exists and case_insensitive_match:
+                    self.logger.info(f"Using case-insensitive match '{case_insensitive_match}' instead of '{self.index_name}'")
+                    self.index_name = case_insensitive_match
+                    index_exists = True
+                
+                # Also try direct string matching as a fallback
+                if not index_exists:
+                    # Try to find via string matching in the raw response
+                    target_index_str = f"'name': '{self.index_name}'"
+                    raw_response = str(indexes_resp if 'indexes_resp' in locals() else indexes_response)
+                    if target_index_str in raw_response:
+                        self.logger.info(f"Found target index '{self.index_name}' via string matching")
+                        index_exists = True
+                
+                if not index_exists:
                     self.logger.info(f"Creating new Pinecone index: {self.index_name}")
                     # Create index with the appropriate dimension for text-embedding-ada-002 (1536)
                     try:
@@ -253,25 +332,32 @@ class EmbeddingService:
                                 )
                         self.logger.info(f"Successfully created index: {self.index_name}")
                     except Exception as create_err:
-                        self.logger.error(f"Error creating index: {str(create_err)}")
-                        
-                        # Check if it's a quota error
-                        err_str = str(create_err).lower()
-                        if "quota" in err_str or "limit" in err_str or "max pods" in err_str:
-                            self.logger.error("Detected quota limit error from Pinecone")
-                            self.logger.error("This might be due to account limitations - if you have existing indexes, try using one of those instead")
-                            
-                            # Try to use an existing index if any are available
-                            if available_indexes:
-                                alternative_index = available_indexes[0]
-                                self.logger.warning(f"Will try to use existing index '{alternative_index}' instead")
-                                self.index_name = alternative_index
-                            else:
-                                self.logger.error("No existing indexes found to use as an alternative")
-                                raise
+                        # Handle "already exists" errors which indicate index detection failed 
+                        # but the index actually exists
+                        error_msg = str(create_err).lower()
+                        if "already_exists" in error_msg or "already exists" in error_msg or "409" in error_msg:
+                            self.logger.info(f"Index '{self.index_name}' already exists (from error message)")
+                            self.logger.info(f"This means our index detection logic missed it, but the index does exist")
                         else:
-                            # Re-raise for other errors
-                            raise
+                            self.logger.error(f"Error creating index: {str(create_err)}")
+                        
+                            # Check if it's a quota error
+                            err_str = str(create_err).lower()
+                            if "quota" in err_str or "limit" in err_str or "max pods" in err_str:
+                                self.logger.error("Detected quota limit error from Pinecone")
+                                self.logger.error("This might be due to account limitations - if you have existing indexes, try using one of those instead")
+                                
+                                # Try to use an existing index if any are available
+                                if available_indexes:
+                                    alternative_index = available_indexes[0]
+                                    self.logger.warning(f"Will try to use existing index '{alternative_index}' instead")
+                                    self.index_name = alternative_index
+                                else:
+                                    self.logger.error("No existing indexes found to use as an alternative")
+                                    raise
+                            else:
+                                # Re-raise for other errors
+                                raise
                 
                 # Connect to the index based on API version
                 if PINECONE_NEW_API:
@@ -282,8 +368,21 @@ class EmbeddingService:
                 self.logger.info(f"Connected to Pinecone index: {self.index_name}")
                 
                 # Test the connection
-                stats = self.index.describe_index_stats()
-                self.logger.info(f"Index stats: {stats}")
+                try:
+                    stats = self.index.describe_index_stats()
+                    self.logger.info(f"Index stats: {stats}")
+                    
+                    # Detailed analysis of namespaces
+                    if 'namespaces' in stats:
+                        namespaces = stats['namespaces']
+                        self.logger.info(f"Found {len(namespaces)} namespaces in index")
+                        for ns, ns_data in namespaces.items():
+                            self.logger.info(f"  Namespace '{ns}': {ns_data.get('vector_count', 0)} vectors")
+                    else:
+                        self.logger.info("No namespaces found in index")
+                except Exception as stats_err:
+                    self.logger.error(f"Error retrieving index stats: {str(stats_err)}")
+                    self.logger.error("Will attempt to continue anyway")
                 
             except Exception as e:
                 self.logger.error(f"Error with Pinecone index: {str(e)}")
