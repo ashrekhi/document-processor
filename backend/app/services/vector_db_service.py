@@ -13,94 +13,10 @@ import sys
 # Import the Pinecone client and our EmbeddingService
 try:
     print("Attempting to import Pinecone...")
-    print(f"Python version: {sys.version}")
-    print(f"Python path: {sys.path}")
-    
-    # Print the module search path to help debug import issues
-    for i, path in enumerate(sys.path):
-        print(f"Path {i}: {path}")
-    
-    # Try importing the package directly
-    import pinecone as pinecone_pkg
-    print(f"Pinecone package located at: {pinecone_pkg.__file__}")
-    print(f"Pinecone package version: {getattr(pinecone_pkg, '__version__', 'unknown')}")
-    print(f"Pinecone package contents: {dir(pinecone_pkg)}")
-    
-    # Check if we have a V2 API key (starts with pcsk_)
-    pinecone_api_key = os.getenv('PINECONE_API_KEY', '')
-    is_v2_api_key = pinecone_api_key.startswith('pcsk_')
-    
-    if is_v2_api_key:
-        print("V2 API key detected (pcsk_) - Forcing V2 API usage")
-        # Ensure we have the V2 API class
-        if hasattr(pinecone_pkg, 'Pinecone'):
-            print("V2 API class found - Using direct Pinecone class")
-            Pinecone = pinecone_pkg.Pinecone
-            ServerlessSpec = pinecone_pkg.ServerlessSpec
-            PINECONE_NEW_API = True
-        else:
-            print("ERROR: V2 API key detected but V2 API class not found")
-            print("This likely means you need to upgrade the pinecone package")
-            print("Try: pip install --upgrade pinecone-client")
-            raise ImportError("V2 API key requires V2 API class (pinecone.Pinecone)")
-    else:
-        # For V1 API keys, we can use either version
-        if hasattr(pinecone_pkg, 'Pinecone'):
-            print("V2 API class found - Using new API format")
-            Pinecone = pinecone_pkg.Pinecone
-            ServerlessSpec = pinecone_pkg.ServerlessSpec
-            PINECONE_NEW_API = True
-        elif hasattr(pinecone_pkg, 'init'):
-            print("V1 API detected - Using module as client")
-            # Create class adapters for backwards compatibility
-            class PineconeAdapter:
-                def __init__(self, api_key, **kwargs):
-                    print("Using adapter for V1 Pinecone API")
-                    self.api_key = api_key
-                    # Initialize the V1 client
-                    if 'environment' in kwargs:
-                        pinecone_pkg.init(api_key=api_key, environment=kwargs['environment'])
-                    else:
-                        pinecone_pkg.init(api_key=api_key)
-                
-                def Index(self, index_name):
-                    print(f"Getting index '{index_name}' with V1 API")
-                    return pinecone_pkg.Index(name=index_name)
-                
-                def list_indexes(self):
-                    print("Listing indexes with V1 API")
-                    indexes = pinecone_pkg.list_indexes()
-                    # Convert to V2 format
-                    return {"indexes": [{"name": idx} for idx in indexes]}
-                
-                def create_index(self, name, dimension, metric, **kwargs):
-                    print(f"Creating index '{name}' with V1 API")
-                    # Extract environment from kwargs if present
-                    env = kwargs.get('environment', None)
-                    if env:
-                        return pinecone_pkg.create_index(name=name, dimension=dimension, metric=metric, environment=env)
-                    else:
-                        return pinecone_pkg.create_index(name=name, dimension=dimension, metric=metric)
-            
-            class ServerlessSpecAdapter:
-                def __init__(self, cloud, region):
-                    self.cloud = cloud
-                    self.region = region
-            
-            # Assign the adapter classes
-            Pinecone = PineconeAdapter
-            ServerlessSpec = ServerlessSpecAdapter
-            print("Successfully created Pinecone adapter for V1 API")
-            PINECONE_NEW_API = False
-        else:
-            print("WARNING: Unknown Pinecone API version - neither V1 nor V2 detected")
-            # Try the regular import as last resort
-            from pinecone import Pinecone, ServerlessSpec
-            print("Successfully imported Pinecone via from...import")
-            PINECONE_NEW_API = True
-        
+    # Import V2 API directly
+    from pinecone import Pinecone, ServerlessSpec
+    print("Successfully imported Pinecone class (V2 API)")
     PINECONE_IMPORT_SUCCESS = True
-    print("Successfully imported pinecone package")
     
     # Print the imported Pinecone version to help with debugging
     import importlib.metadata
@@ -128,7 +44,7 @@ except ImportError as e:
     except Exception as pkg_error:
         print(f"Could not list installed packages: {str(pkg_error)}")
     PINECONE_IMPORT_SUCCESS = False
-    PINECONE_NEW_API = False
+    
     # Define a stub Pinecone class to avoid errors
     class Pinecone:
         def __init__(self, api_key, **kwargs):
@@ -150,7 +66,7 @@ except Exception as e:
     print(f"Exception type: {type(e).__name__}")
     print(f"Exception details:\n{traceback.format_exc()}")
     PINECONE_IMPORT_SUCCESS = False
-    PINECONE_NEW_API = False
+    
     # Define a stub Pinecone class to avoid errors
     class Pinecone:
         def __init__(self, api_key, **kwargs):
@@ -343,28 +259,9 @@ class VectorDBService:
                 else:
                     raise ValueError("PINECONE_API_KEY not set in environment variables. Vector operations cannot proceed.")
             
-            # Get Pinecone cloud, region and environment if set
+            # Get Pinecone cloud and region
             self.pinecone_cloud = os.getenv('PINECONE_CLOUD')
             self.pinecone_region = os.getenv('PINECONE_REGION')
-            
-            # Check if we have a new or old format API key
-            self.is_new_api_key = self.pinecone_api_key.startswith('pcsk_')
-            
-            if self.is_new_api_key:
-                print(f"DEBUG: Using new Pinecone API key format (pcsk_)")
-                if self.pinecone_cloud:
-                    print(f"DEBUG: Using Pinecone cloud: {self.pinecone_cloud}")
-                else:
-                    print(f"WARNING: New Pinecone API keys require PINECONE_CLOUD parameter (typically 'aws' or 'gcp')")
-                    print(f"Add PINECONE_CLOUD=aws to your .env file")
-                    
-                if self.pinecone_region:
-                    print(f"DEBUG: Using Pinecone region: {self.pinecone_region}")
-                else:
-                    print(f"WARNING: New Pinecone API keys require PINECONE_REGION parameter (e.g., 'us-east-1', 'us-west-2')")
-                    print(f"Add PINECONE_REGION=us-east-1 to your .env file")
-            else:
-                print(f"DEBUG: Using older Pinecone API key format")
             
             # If Pinecone import failed, use the fallback
             if not PINECONE_IMPORT_SUCCESS:
@@ -474,60 +371,33 @@ class VectorDBService:
             
             # Extract available indexes
             available_indexes = []
-            if PINECONE_NEW_API:
-                # New API format returns an IndexList object
-                try:
-                    # Get the list of indexes using our safe helper
-                    index_list = self._safe_get_value(indexes, 'indexes')
-                    if not index_list:
-                        print(f"DEBUG: V2 API - Could not find indexes in response")
-                        print(f"DEBUG: V2 API - Response type: {type(indexes)}")
-                        print(f"DEBUG: V2 API - Available attributes: {dir(indexes)}")
-                        return False
+            try:
+                # Get the list of indexes from V2 API response
+                index_list = self._safe_get_value(indexes, 'indexes')
+                if not index_list:
+                    print(f"DEBUG: Could not find indexes in response")
+                    print(f"DEBUG: Response type: {type(indexes)}")
+                    print(f"DEBUG: Available attributes: {dir(indexes)}")
+                    return False
 
-                    print(f"DEBUG: V2 API - Found index_list type: {type(index_list)}")
-                    print(f"DEBUG: V2 API - Index list content: {index_list}")
-                    
-                    # Extract names from the index objects
-                    for idx in index_list:
-                        name = self._safe_get_value(idx, 'name')
-                        if name:
-                            available_indexes.append(name)
-                        else:
-                            print(f"DEBUG: V2 API - Could not extract name from index: {idx}")
-                            
-                    print(f"DEBUG: V2 API - Extracted names: {available_indexes}")
-                except Exception as e:
-                    print(f"DEBUG: V2 API - Error extracting names: {str(e)}")
-                    print(f"DEBUG: V2 API - Response dump: {indexes}")
-                    if hasattr(indexes, '__dict__'):
-                        print(f"DEBUG: V2 API - Object attributes: {indexes.__dict__}")
-                else:
-                    print(f"DEBUG: V2 API - Unexpected response format:")
-                    print(f"  - Is dict? {isinstance(indexes, dict)}")
-                    print(f"  - Has 'indexes' key? {'indexes' in indexes if isinstance(indexes, dict) else False}")
-                    print(f"  - Available keys: {indexes.keys() if isinstance(indexes, dict) else 'N/A'}")
-            else:
-                # Old API returns a list of string names
-                if isinstance(indexes, list):
-                    print(f"DEBUG: V1 API - Found list type response")
-                    print(f"DEBUG: V1 API - List items types: {[type(idx) for idx in indexes]}")
-                    available_indexes = indexes
-                # For adapter case, also check dict format
-                elif isinstance(indexes, dict) and 'indexes' in indexes:
-                    index_list = indexes['indexes']
-                    print(f"DEBUG: V1 Adapter - Found index_list type: {type(index_list)}")
-                    print(f"DEBUG: V1 Adapter - Index list content: {index_list}")
-                    try:
-                        available_indexes = [idx['name'] for idx in index_list if isinstance(idx, dict) and 'name' in idx]
-                        print(f"DEBUG: V1 Adapter - Extracted names: {available_indexes}")
-                    except Exception as e:
-                        print(f"DEBUG: V1 Adapter - Error extracting names: {str(e)}")
-                else:
-                    print(f"DEBUG: V1 API - Unexpected response format:")
-                    print(f"  - Response type: {type(indexes)}")
-                    print(f"  - Content: {indexes}")
-            
+                print(f"DEBUG: Found index_list type: {type(index_list)}")
+                print(f"DEBUG: Index list content: {index_list}")
+                
+                # Extract names from the index objects
+                for idx in index_list:
+                    name = self._safe_get_value(idx, 'name')
+                    if name:
+                        available_indexes.append(name)
+                    else:
+                        print(f"DEBUG: Could not extract name from index: {idx}")
+                        
+                print(f"DEBUG: Extracted names: {available_indexes}")
+            except Exception as e:
+                print(f"DEBUG: Error extracting names: {str(e)}")
+                print(f"DEBUG: Response dump: {indexes}")
+                if hasattr(indexes, '__dict__'):
+                    print(f"DEBUG: Object attributes: {indexes.__dict__}")
+                
             print(f"DEBUG: Available indexes: {available_indexes}")
             
             # Check if the index already exists
@@ -560,63 +430,37 @@ class VectorDBService:
                 
                 print(f"Index '{self.index_name}' not found. Creating...")
                 
-                # Create index based on API key format and API version
+                # Create index based on API key format
                 try:
-                    if self.is_new_api_key:
-                        if not self.pinecone_region:
-                            print(f"ERROR: PINECONE_REGION is required for creating indexes with new API keys")
-                            print(f"Add PINECONE_REGION=us-east-1 to your .env file")
-                            raise ValueError("PINECONE_REGION environment variable is required but not set")
-                        
-                        print(f"DEBUG: Creating index with {'ServerlessSpec' if PINECONE_NEW_API else 'environment'} for new API key format")
-                        print(f"DEBUG: Using cloud={self.pinecone_cloud or 'aws'}, region={self.pinecone_region}")
-                        
-                        try:
-                            if PINECONE_NEW_API:
-                                self.pc.create_index(
-                                    name=self.index_name,
-                                    dimension=1536,
-                                    metric="cosine",
-                                    spec=ServerlessSpec(
-                                        cloud=self.pinecone_cloud or "aws",
-                                        region=self.pinecone_region
-                                    )
-                                )
-                            else:
-                                # Old API format
-                                self.pc.create_index(
-                                    name=self.index_name,
-                                    dimension=1536,
-                                    metric="cosine"
-                                )
-                            print(f"Created new Pinecone index: {self.index_name}")
-                        except Exception as create_err:
-                            error_msg = str(create_err).lower()
-                            # Check specifically for 409 conflict error
-                            if "409" in error_msg or "already exists" in error_msg:
-                                print(f"INFO: Index '{self.index_name}' already exists (confirmed from 409 response)")
-                                # This is not an error condition - the index exists which is what we want
-                                return
-                            else:
-                                print(f"Error creating index: {str(create_err)}")
-                            raise create_err
-                    else:
-                        print(f"DEBUG: Creating index for old API key format")
-                        if PINECONE_NEW_API:
-                            self.pc.create_index(
-                                name=self.index_name,
-                                dimension=1536,
-                                metric="cosine"
+                    if not self.pinecone_region:
+                        print(f"ERROR: PINECONE_REGION is required for creating indexes with V2 API")
+                        print(f"Add PINECONE_REGION=us-east-1 to your .env file")
+                        raise ValueError("PINECONE_REGION environment variable is required but not set")
+                    
+                    print(f"DEBUG: Creating index with ServerlessSpec")
+                    print(f"DEBUG: Using cloud={self.pinecone_cloud or 'aws'}, region={self.pinecone_region}")
+                    
+                    try:
+                        self.pc.create_index(
+                            name=self.index_name,
+                            dimension=1536,
+                            metric="cosine",
+                            spec=ServerlessSpec(
+                                cloud=self.pinecone_cloud or "aws",
+                                region=self.pinecone_region
                             )
-                        else:
-                            # Old API direct call
-                            self.pc.create_index(
-                                name=self.index_name,
-                                dimension=1536,
-                                metric="cosine"
-                            )
-                            
+                        )
                         print(f"Created new Pinecone index: {self.index_name}")
+                    except Exception as create_err:
+                        error_msg = str(create_err).lower()
+                        # Check specifically for 409 conflict error
+                        if "409" in error_msg or "already exists" in error_msg:
+                            print(f"INFO: Index '{self.index_name}' already exists (confirmed from 409 response)")
+                            # This is not an error condition - the index exists which is what we want
+                            return
+                        else:
+                            print(f"Error creating index: {str(create_err)}")
+                        raise create_err
                 except Exception as create_err:
                     error_msg = str(create_err).lower()
                     print(f"Error creating index: {str(create_err)}")
@@ -660,14 +504,8 @@ class VectorDBService:
                 indexes = self.pc.list_indexes()
                 available_indexes = []
                 
-                if PINECONE_NEW_API:
-                    if isinstance(indexes, dict) and 'indexes' in indexes:
-                        available_indexes = [idx['name'] for idx in indexes['indexes'] if isinstance(idx, dict) and 'name' in idx]
-                else:
-                    if isinstance(indexes, list):
-                        available_indexes = indexes
-                    elif isinstance(indexes, dict) and 'indexes' in indexes:
-                        available_indexes = [idx['name'] for idx in indexes['indexes'] if isinstance(idx, dict) and 'name' in idx]
+                if isinstance(indexes, dict) and 'indexes' in indexes:
+                    available_indexes = [idx['name'] for idx in indexes['indexes'] if isinstance(idx, dict) and 'name' in idx]
                 
                 if available_indexes:
                     print(f"ERROR RECOVERY: Using existing index '{available_indexes[0]}' instead of '{self.index_name}'")
@@ -755,13 +593,8 @@ class VectorDBService:
                             namespace=namespace
                         )
                         
-                        # Handle both V1 and V2 API responses
-                        if isinstance(result, dict):
-                            # V2 API response
-                            upserted = result.get('upserted_count', 0)
-                        else:
-                            # V1 API response
-                            upserted = getattr(result, 'upserted_count', 0)
+                        # Get upserted count from V2 API response
+                        upserted = result.get('upserted_count', 0)
                         
                         total_vectors += upserted
                         vectors = []  # Clear vectors list to free memory
@@ -812,36 +645,20 @@ class VectorDBService:
             # Format results for the V2 API response format
             formatted_results = []
             
-            # Check if we got a V2 API response (dictionary) or V1 API response (object with matches attribute)
-            if isinstance(results, dict):
-                # V2 API response
-                matches = results.get('matches', [])
-                for match in matches:
-                    formatted_match = {
-                        "id": match.get('id'),
-                        "score": match.get('score', 0),
-                        "doc_id": match.get('metadata', {}).get('doc_id', ''),
-                        "text": match.get('metadata', {}).get('text', ''),
-                        "source": match.get('metadata', {}).get('source', ''),
-                        "filename": match.get('metadata', {}).get('filename', ''),
-                        "folder": match.get('metadata', {}).get('folder', ''),
-                        "namespace": namespace
-                    }
-                    formatted_results.append(formatted_match)
-            else:
-                # V1 API or Mock response (object with matches attribute)
-                for match in getattr(results, 'matches', []):
-                    formatted_match = {
-                        "id": match.id,
-                        "score": match.score,
-                        "doc_id": match.metadata.get("doc_id", ""),
-                        "text": match.metadata.get("text", ""),
-                        "source": match.metadata.get("source", ""),
-                        "filename": match.metadata.get("filename", ""),
-                        "folder": match.metadata.get("folder", ""),
-                        "namespace": namespace
-                    }
-                    formatted_results.append(formatted_match)
+            # Get matches from the V2 API response dictionary
+            matches = results.get('matches', [])
+            for match in matches:
+                formatted_match = {
+                    "id": match.get('id'),
+                    "score": match.get('score', 0),
+                    "doc_id": match.get('metadata', {}).get('doc_id', ''),
+                    "text": match.get('metadata', {}).get('text', ''),
+                    "source": match.get('metadata', {}).get('source', ''),
+                    "filename": match.get('metadata', {}).get('filename', ''),
+                    "folder": match.get('metadata', {}).get('folder', ''),
+                    "namespace": namespace
+                }
+                formatted_results.append(formatted_match)
             
             print(f"VECTOR SEARCH: Found {len(formatted_results)} matches")
             if formatted_results:
@@ -873,26 +690,15 @@ class VectorDBService:
                     namespace=namespace
                 )
                 
-                # Handle both V1 and V2 API responses
-                if isinstance(result, dict):
-                    # V2 API response
-                    deleted = result.get('deleted_count', 0)
-                else:
-                    # V1 API response
-                    deleted = getattr(result, 'deleted_count', 0)
-                
+                # Get deleted count from V2 API response
+                deleted = result.get('deleted_count', 0)
                 print(f"Deleted {deleted} vectors from namespace {namespace}")
             else:
                 # If no namespace is provided, we need to find all namespaces that contain this document
                 stats = self.pinecone_index.describe_index_stats()
                 
-                # Handle both V1 and V2 API responses for stats
-                if isinstance(stats, dict):
-                    # V2 API response
-                    namespaces = stats.get("namespaces", {}).keys()
-                else:
-                    # V1 API response
-                    namespaces = getattr(stats, "namespaces", {}).keys()
+                # Get namespaces from V2 API response
+                namespaces = stats.get("namespaces", {}).keys()
                 
                 total_deleted = 0
                 for ns in namespaces:
@@ -901,13 +707,8 @@ class VectorDBService:
                         namespace=ns
                     )
                     
-                    # Handle both V1 and V2 API responses
-                    if isinstance(result, dict):
-                        # V2 API response
-                        deleted = result.get('deleted_count', 0)
-                    else:
-                        # V1 API response
-                        deleted = getattr(result, 'deleted_count', 0)
+                    # Get deleted count from V2 API response
+                    deleted = result.get('deleted_count', 0)
                     
                     total_deleted += deleted
                     print(f"Deleted {deleted} vectors from namespace {ns}")
