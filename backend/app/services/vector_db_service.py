@@ -806,14 +806,28 @@ class VectorDBService:
             vector_count = stats.get("namespaces", {}).get(namespace, {}).get("vector_count", 0)
             print(f"VECTOR DB: Found {vector_count} vectors in namespace '{namespace}'")
             
-            # Delete all vectors in the namespace (Pinecone doesn't have a direct "delete namespace" operation)
-            # We use an empty filter which deletes everything in the namespace
+            # Use delete_all=True parameter which is available in Pinecone v3.0.0
+            # This properly deletes all vectors in the namespace
             result = self.pinecone_index.delete(
-                filter={},  # Empty filter deletes all vectors
+                delete_all=True,  # This is the key change
                 namespace=namespace
             )
             
             print(f"VECTOR DB: Successfully deleted namespace '{namespace}'")
+            
+            # Verify the namespace is empty after deletion
+            stats_after = self.pinecone_index.describe_index_stats()
+            if namespace in stats_after.get("namespaces", {}):
+                remaining_vectors = stats_after.get("namespaces", {}).get(namespace, {}).get("vector_count", 0)
+                if remaining_vectors > 0:
+                    print(f"VECTOR DB WARNING: Namespace '{namespace}' still has {remaining_vectors} vectors after deletion")
+                    # Try a second approach if vectors remain (for compatibility with different Pinecone versions)
+                    self.pinecone_index.delete(
+                        filter={},  # Empty filter as fallback
+                        namespace=namespace
+                    )
+                    print(f"VECTOR DB: Attempted second deletion approach for namespace '{namespace}'")
+            
             return True
         except Exception as e:
             print(f"VECTOR DB ERROR: Error deleting namespace '{namespace}': {str(e)}")
