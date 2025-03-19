@@ -490,114 +490,129 @@ class VectorDBService:
             indexes = self.pc.list_indexes()
             print(f"DEBUG: Raw index list response: {indexes}")
             
-            # Check if the index already exists
-            index_exists = False
-            
-            # Determine the format of response based on API version
+            # Extract available indexes
+            available_indexes = []
             if PINECONE_NEW_API:
                 # New API format returns a dict with 'indexes' key
                 if isinstance(indexes, dict) and 'indexes' in indexes:
                     index_list = indexes['indexes']
                     print(f"DEBUG: V2 API - Found {len(index_list)} indexes: {index_list}")
-                    for idx in index_list:
-                        if isinstance(idx, dict) and 'name' in idx:
-                            print(f"DEBUG: Comparing index '{idx['name']}' with target '{self.index_name}'")
-                            if idx['name'] == self.index_name:
-                                index_exists = True
-                                print(f"DEBUG: MATCH FOUND! Existing index '{self.index_name}' in indexes list")
-                                break
-                            elif idx['name'].lower() == self.index_name.lower():
-                                print(f"DEBUG: Case-insensitive match found - '{idx['name']}' vs '{self.index_name}'")
+                    available_indexes = [idx['name'] for idx in index_list if isinstance(idx, dict) and 'name' in idx]
             else:
                 # Old API returns a list of string names
                 if isinstance(indexes, list):
                     print(f"DEBUG: V1 API - Found {len(indexes)} indexes: {indexes}")
-                    for idx_name in indexes:
-                        print(f"DEBUG: Comparing index '{idx_name}' with target '{self.index_name}'")
-                        if idx_name == self.index_name:
-                            index_exists = True
-                            print(f"DEBUG: MATCH FOUND! Existing index '{self.index_name}' in indexes list")
-                            break
-                        elif idx_name.lower() == self.index_name.lower():
-                            print(f"DEBUG: Case-insensitive match found - '{idx_name}' vs '{self.index_name}'")
+                    available_indexes = indexes
                 # For adapter case, also check dict format
                 elif isinstance(indexes, dict) and 'indexes' in indexes:
                     index_list = indexes['indexes']
                     print(f"DEBUG: V1 Adapter - Found {len(index_list)} indexes: {index_list}")
-                    for idx in index_list:
-                        if isinstance(idx, dict) and 'name' in idx:
-                            print(f"DEBUG: Comparing index '{idx['name']}' with target '{self.index_name}'")
-                            if idx['name'] == self.index_name:
-                                index_exists = True
-                                print(f"DEBUG: MATCH FOUND! Existing index '{self.index_name}' in adapter indexes list")
-                                break
-                            elif idx['name'].lower() == self.index_name.lower():
-                                print(f"DEBUG: Case-insensitive match found - '{idx['name']}' vs '{self.index_name}'")
+                    available_indexes = [idx['name'] for idx in index_list if isinstance(idx, dict) and 'name' in idx]
             
-            # Fix the index existence check - the log shows we're incorrectly reporting False even when index exists
-            if not index_exists:
-                # Double check by looking at the raw response for the index name
-                raw_response = str(indexes)
-                print(f"DEBUG: Raw index list string: {raw_response[:200]}...")  # Print first 200 chars to avoid log spam
-                if f"'name': '{self.index_name}'" in raw_response or f'"name": "{self.index_name}"' in raw_response:
-                    index_exists = True
-                    print(f"DEBUG: MATCH FOUND! Found existing index '{self.index_name}' in raw response")
-                    
-                # Also try case-insensitive match as a fallback
-                elif f"'name': '{self.index_name.lower()}'" in raw_response.lower() or f'"name": "{self.index_name.lower()}"' in raw_response.lower():
-                    print(f"DEBUG: Case-insensitive match found in raw response")
+            print(f"DEBUG: Available indexes: {available_indexes}")
+            
+            # Check if the index already exists
+            index_exists = self.index_name in available_indexes
+            
+            # Also check for case-insensitive matches which might be causing confusion
+            case_insensitive_match = None
+            for idx in available_indexes:
+                if idx.lower() == self.index_name.lower() and idx != self.index_name:
+                    case_insensitive_match = idx
+                    print(f"DEBUG: Case-insensitive match found: '{idx}' vs target '{self.index_name}'")
+                    print(f"DEBUG: Consider updating your PINECONE_INDEX environment variable to use the exact case: '{idx}'")
+            
+            # If the exact index doesn't exist but a case-insensitive match does, use that instead
+            if not index_exists and case_insensitive_match:
+                print(f"DEBUG: Using case-insensitive match '{case_insensitive_match}' instead of '{self.index_name}'")
+                self.index_name = case_insensitive_match
+                index_exists = True
             
             print(f"DEBUG: Final result - Index '{self.index_name}' exists: {index_exists}")
             
             if not index_exists:
+                # If no specific index was requested, try to use any existing index 
+                # instead of creating a new one
+                if not os.getenv('PINECONE_INDEX') and available_indexes:
+                    print(f"DEBUG: No specific index was requested, and found {len(available_indexes)} existing indexes")
+                    print(f"DEBUG: Using existing index '{available_indexes[0]}' instead of creating a new one")
+                    self.index_name = available_indexes[0]
+                    return
+                
                 print(f"Index '{self.index_name}' not found. Creating...")
                 
                 # Create index based on API key format and API version
-                if self.is_new_api_key:
-                    if not self.pinecone_region:
-                        print(f"ERROR: PINECONE_REGION is required for creating indexes with new API keys")
-                        print(f"Add PINECONE_REGION=us-east-1 to your .env file")
-                        raise ValueError("PINECONE_REGION environment variable is required but not set")
-                    
-                    print(f"DEBUG: Creating index with {'ServerlessSpec' if PINECONE_NEW_API else 'environment'} for new API key format")
-                    print(f"DEBUG: Using cloud={self.pinecone_cloud or 'aws'}, region={self.pinecone_region}")
-                    
-                    if PINECONE_NEW_API:
-                        self.pc.create_index(
-                            name=self.index_name,
-                            dimension=1536,
-                            metric="cosine",
-                            spec=ServerlessSpec(
-                                cloud=self.pinecone_cloud or "aws",
-                                region=self.pinecone_region
+                try:
+                    if self.is_new_api_key:
+                        if not self.pinecone_region:
+                            print(f"ERROR: PINECONE_REGION is required for creating indexes with new API keys")
+                            print(f"Add PINECONE_REGION=us-east-1 to your .env file")
+                            raise ValueError("PINECONE_REGION environment variable is required but not set")
+                        
+                        print(f"DEBUG: Creating index with {'ServerlessSpec' if PINECONE_NEW_API else 'environment'} for new API key format")
+                        print(f"DEBUG: Using cloud={self.pinecone_cloud or 'aws'}, region={self.pinecone_region}")
+                        
+                        if PINECONE_NEW_API:
+                            self.pc.create_index(
+                                name=self.index_name,
+                                dimension=1536,
+                                metric="cosine",
+                                spec=ServerlessSpec(
+                                    cloud=self.pinecone_cloud or "aws",
+                                    region=self.pinecone_region
+                                )
                             )
-                        )
+                        else:
+                            # Old API format
+                            self.pc.create_index(
+                                name=self.index_name,
+                                dimension=1536,
+                                metric="cosine"
+                            )
                     else:
-                        # Old API format
-                        self.pc.create_index(
-                            name=self.index_name,
-                            dimension=1536,
-                            metric="cosine"
-                        )
-                else:
-                    print(f"DEBUG: Creating index for old API key format")
-                    if PINECONE_NEW_API:
-                        self.pc.create_index(
-                            name=self.index_name,
-                            dimension=1536,
-                            metric="cosine",
-                            environment=self.pinecone_env
-                        )
-                    else:
-                        # Old API direct call
-                        self.pc.create_index(
-                            name=self.index_name,
-                            dimension=1536,
-                            metric="cosine",
-                            environment=self.pinecone_env
-                        )
+                        print(f"DEBUG: Creating index for old API key format")
+                        if PINECONE_NEW_API:
+                            self.pc.create_index(
+                                name=self.index_name,
+                                dimension=1536,
+                                metric="cosine",
+                                environment=self.pinecone_env
+                            )
+                        else:
+                            # Old API direct call
+                            self.pc.create_index(
+                                name=self.index_name,
+                                dimension=1536,
+                                metric="cosine",
+                                environment=self.pinecone_env
+                            )
+                        
+                    print(f"Created new Pinecone index: {self.index_name}")
+                except Exception as create_err:
+                    error_msg = str(create_err).lower()
+                    print(f"Error creating index: {str(create_err)}")
                     
-                print(f"Created new Pinecone index: {self.index_name}")
+                    # Check if it's a quota-related error
+                    if any(term in error_msg for term in ["quota", "limit", "max pods", "reached"]):
+                        print(f"QUOTA ERROR: Unable to create new index due to account limitations")
+                        
+                        # If there are existing indexes, use one of them instead
+                        if available_indexes:
+                            print(f"Found {len(available_indexes)} existing indexes")
+                            print(f"Using existing index '{available_indexes[0]}' instead of creating a new one")
+                            self.index_name = available_indexes[0]
+                            print(f"Switched to using existing index: {self.index_name}")
+                        else:
+                            print(f"ERROR: No existing indexes available to use as fallback")
+                            if os.getenv('ALLOW_DEV_FALLBACK', '').lower() == 'true':
+                                print(f"WARNING: Using development fallback mode with mock implementation")
+                                # The calling method will handle setting up mock implementation
+                            else:
+                                raise ValueError("No Pinecone indexes available and unable to create new ones due to quota limits")
+                    else:
+                        import traceback
+                        print(f"DEBUG: Full index creation error details:\n{traceback.format_exc()}")
+                        raise ValueError(f"Failed to create Pinecone index: {str(create_err)}")
             else:
                 print(f"Pinecone index '{self.index_name}' already exists.")
         except Exception as e:
@@ -610,6 +625,28 @@ class VectorDBService:
             print(f"Error ensuring index exists: {str(e)}")
             import traceback
             print(f"DEBUG: Full index creation error details:\n{traceback.format_exc()}")
+            
+            # If there are existing indexes, use one instead
+            try:
+                indexes = self.pc.list_indexes()
+                available_indexes = []
+                
+                if PINECONE_NEW_API:
+                    if isinstance(indexes, dict) and 'indexes' in indexes:
+                        available_indexes = [idx['name'] for idx in indexes['indexes'] if isinstance(idx, dict) and 'name' in idx]
+                else:
+                    if isinstance(indexes, list):
+                        available_indexes = indexes
+                    elif isinstance(indexes, dict) and 'indexes' in indexes:
+                        available_indexes = [idx['name'] for idx in indexes['indexes'] if isinstance(idx, dict) and 'name' in idx]
+                
+                if available_indexes:
+                    print(f"ERROR RECOVERY: Using existing index '{available_indexes[0]}' instead of '{self.index_name}'")
+                    self.index_name = available_indexes[0]
+                    return
+            except Exception as recovery_err:
+                print(f"Failed to recover by using existing index: {str(recovery_err)}")
+            
             raise ValueError(f"Failed to ensure Pinecone index exists: {str(e)}")
     
     def _generate_embedding(self, text: str) -> List[float]:
@@ -734,7 +771,28 @@ class VectorDBService:
                 # Check if the requested namespace exists
                 if namespace and namespace not in namespaces:
                     print(f"VECTOR SEARCH WARNING: Requested namespace '{namespace}' doesn't exist in index")
-                    print(f"VECTOR SEARCH: Will try to search anyway, but expect empty results")
+                    
+                    # Try to find case-insensitive match
+                    namespace_lower = namespace.lower()
+                    case_match = None
+                    for ns in namespaces.keys():
+                        if ns.lower() == namespace_lower:
+                            case_match = ns
+                            print(f"VECTOR SEARCH: Found case-insensitive match for namespace: '{ns}' vs requested '{namespace}'")
+                            break
+                    
+                    if case_match:
+                        print(f"VECTOR SEARCH: Using case-insensitive match '{case_match}' instead of '{namespace}'")
+                        namespace = case_match
+                    else:
+                        # Check if we should try alternate namespaces
+                        if len(namespaces) > 0:
+                            available_ns = list(namespaces.keys())
+                            alternative_ns = available_ns[0]
+                            vector_count = namespaces[alternative_ns].get("vector_count", 0)
+                            if vector_count > 0:
+                                print(f"VECTOR SEARCH: Requested namespace not found, will try alternative '{alternative_ns}' with {vector_count} vectors")
+                                namespace = alternative_ns
                 
                 # Check if root namespace exists and has vectors
                 if "root" in namespaces:
@@ -761,66 +819,96 @@ class VectorDBService:
             print(f"VECTOR SEARCH: Generated query embedding in {embedding_time:.2f} seconds")
             print(f"VECTOR SEARCH: Embedding dimension: {len(query_embedding)}")
             
-            # Check if we should try the root namespace as fallback
-            try_namespaces = [namespace]
-            if namespace is None:
-                # If no namespace specified, let's also try 'root' as a fallback if it exists
-                # but only if initial search returns no results
-                try:
-                    if stats and "namespaces" in stats and "root" in stats["namespaces"]:
-                        if stats["namespaces"]["root"].get("vector_count", 0) > 0:
-                            print(f"VECTOR SEARCH: Will try 'root' namespace if default search returns no results")
-                except:
-                    pass
+            # List of namespaces to try, in order
+            namespaces_to_try = []
+            if namespace is not None:
+                namespaces_to_try.append(namespace)
             
-            # Search Pinecone with namespace
-            print(f"VECTOR SEARCH: Executing search in Pinecone at {time.strftime('%H:%M:%S')}...")
-            print(f"VECTOR SEARCH: Pinecone index type: {type(self.pinecone_index)}")
-            print(f"VECTOR SEARCH: Using namespace: '{namespace}'")
-            
-            search_start_time = time.time()
-            
-            # Execute Pinecone query
-            results = self.pinecone_index.query(
-                vector=query_embedding,
-                top_k=top_k,
-                include_metadata=True,
-                namespace=namespace
-            )
-            search_time = time.time() - search_start_time
-            print(f"VECTOR SEARCH: Executed search in {search_time:.2f} seconds")
-            
-            # Log raw results
-            print(f"VECTOR SEARCH: Results type: {type(results)}")
-            print(f"VECTOR SEARCH: Results has matches: {hasattr(results, 'matches')}")
-            if hasattr(results, 'matches'):
-                print(f"VECTOR SEARCH: Found {len(results.matches)} matches")
+            # If no explicit namespace, or if the specified namespace doesn't exist, 
+            # add potential fallbacks
+            if namespace is None or (stats and "namespaces" in stats and namespace not in stats["namespaces"]):
+                # Add default namespace first
+                if "default" in stats.get("namespaces", {}):
+                    if "default" not in namespaces_to_try:
+                        namespaces_to_try.append("default")
                 
-                # Try root namespace as fallback if default namespace returned no results
-                if len(results.matches) == 0 and namespace is None:
-                    try:
-                        print(f"VECTOR SEARCH: No results in default namespace, trying 'root' namespace as fallback...")
-                        root_search_start_time = time.time()
-                        root_results = self.pinecone_index.query(
-                            vector=query_embedding,
-                            top_k=top_k,
-                            include_metadata=True,
-                            namespace="root"
-                        )
-                        root_search_time = time.time() - root_search_start_time
-                        
-                        if hasattr(root_results, 'matches') and len(root_results.matches) > 0:
-                            print(f"VECTOR SEARCH: Found {len(root_results.matches)} matches in 'root' namespace")
-                            results = root_results
-                            print(f"VECTOR SEARCH: Using results from 'root' namespace instead")
-                        else:
-                            print(f"VECTOR SEARCH: No results in 'root' namespace either")
-                    except Exception as root_error:
-                        print(f"VECTOR SEARCH: Error searching 'root' namespace: {str(root_error)}")
-            else:
-                print(f"VECTOR SEARCH: Unexpected response structure from Pinecone")
-                print(f"VECTOR SEARCH: Raw results: {results}")
-                raise ValueError("Unexpected response structure from Pinecone")
+                # Then try root if it exists and has vectors
+                if "root" in stats.get("namespaces", {}) and stats["namespaces"]["root"].get("vector_count", 0) > 0:
+                    if "root" not in namespaces_to_try:
+                        namespaces_to_try.append("root")
+                
+                # Last resort, try any namespace with vectors
+                for ns, ns_data in stats.get("namespaces", {}).items():
+                    if ns not in namespaces_to_try and ns_data.get("vector_count", 0) > 0:
+                        namespaces_to_try.append(ns)
+                        break  # Just add one alternative
+            
+            print(f"VECTOR SEARCH: Will try these namespaces in order: {namespaces_to_try}")
+            
+            # Initialize results
+            results = None
+            used_namespace = None
+            
+            # Try each namespace until we get results
+            for ns in namespaces_to_try:
+                try:
+                    print(f"VECTOR SEARCH: Trying search in namespace '{ns}'...")
+                    search_start_time = time.time()
+                    
+                    # Execute Pinecone query with retry
+                    max_retries = 2
+                    retry_count = 0
+                    search_error = None
+                    
+                    while retry_count <= max_retries:
+                        try:
+                            # Execute Pinecone query
+                            results = self.pinecone_index.query(
+                                vector=query_embedding,
+                                top_k=top_k,
+                                include_metadata=True,
+                                namespace=ns
+                            )
+                            search_error = None
+                            break  # Success, exit retry loop
+                        except Exception as query_error:
+                            search_error = query_error
+                            retry_count += 1
+                            print(f"VECTOR SEARCH WARNING: Query attempt {retry_count} failed: {str(query_error)}")
+                            if retry_count <= max_retries:
+                                retry_delay = 1.0 * retry_count  # Exponential backoff
+                                print(f"VECTOR SEARCH: Retrying in {retry_delay:.1f} seconds...")
+                                time.sleep(retry_delay)
+                            else:
+                                print(f"VECTOR SEARCH ERROR: All retry attempts failed")
+                    
+                    # Check if we got a successful result
+                    if search_error:
+                        # All retries failed
+                        print(f"VECTOR SEARCH ERROR: Failed to search namespace '{ns}' after {max_retries + 1} attempts")
+                        continue  # Try next namespace
+                    
+                    search_time = time.time() - search_start_time
+                    print(f"VECTOR SEARCH: Executed search in {search_time:.2f} seconds")
+                    
+                    # Check if we got results
+                    if hasattr(results, 'matches') and len(results.matches) > 0:
+                        print(f"VECTOR SEARCH: Found {len(results.matches)} matches in namespace '{ns}'")
+                        used_namespace = ns
+                        break  # Success, exit namespace loop
+                    else:
+                        print(f"VECTOR SEARCH: No matches found in namespace '{ns}', will try next namespace if available")
+                
+                except Exception as ns_error:
+                    print(f"VECTOR SEARCH ERROR: Failed to search namespace '{ns}': {str(ns_error)}")
+                    continue  # Try next namespace
+            
+            # Check if we got any results
+            if not results or not hasattr(results, 'matches') or len(results.matches) == 0:
+                print(f"VECTOR SEARCH WARNING: No results found in any namespace")
+                return []
+            
+            print(f"VECTOR SEARCH: Using results from namespace '{used_namespace}'")
             
             # Format results for the new client response format
             print(f"VECTOR SEARCH: Processing search results...")
@@ -845,7 +933,8 @@ class VectorDBService:
                     "text": match.metadata.get("text", ""),
                     "source": match.metadata.get("source", ""),
                     "filename": match.metadata.get("filename", ""),
-                    "folder": match.metadata.get("folder", "")
+                    "folder": match.metadata.get("folder", ""),
+                    "namespace": used_namespace  # Include which namespace was actually used
                 }
                 
                 # Log metadata for debugging
