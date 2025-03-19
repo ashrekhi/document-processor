@@ -131,56 +131,21 @@ except Exception as e:
                   try:
                       indexes = pc.list_indexes()
                       print(f'STARTUP: V2 API successfully listed indexes: {indexes}')
-                      print(f'STARTUP: Type of indexes response: {type(indexes)}')
-                      
-                      # Enhanced extraction of available indexes
-                      available_indexes = []
-                      if isinstance(indexes, dict) and 'indexes' in indexes:
-                          for idx in indexes.get('indexes', []):
-                              if isinstance(idx, dict) and 'name' in idx:
-                                  available_indexes.append(idx['name'])
-                                  print(f'STARTUP: Found index name: {idx[\"name\"]}')
-                      
-                      # Fallback using regex if needed
-                      if not available_indexes:
-                          import re
-                          raw_response = str(indexes)
-                          print(f'STARTUP: Raw response contains: {raw_response[:200]}...')
-                          name_matches = re.findall(r\"'name'\\s*:\\s*'([^']+)'\", raw_response)
-                          if name_matches:
-                              available_indexes = name_matches
-                              print(f'STARTUP: Extracted indexes using regex: {available_indexes}')
-                      
-                      print(f'STARTUP: Available indexes: {available_indexes}')
                       
                       # Check if our index exists
-                      if pinecone_index_name in available_indexes:
-                          print(f'STARTUP: SUCCESS - Index \"{pinecone_index_name}\" found!')
-                      elif available_indexes:
-                          # Try case-insensitive match
-                          case_match = None
-                          for idx in available_indexes:
-                              if idx.lower() == pinecone_index_name.lower():
-                                  case_match = idx
-                                  print(f'STARTUP: Found case-insensitive match: \"{idx}\" vs \"{pinecone_index_name}\"')
-                                  break
-                          
-                          if not case_match:
-                              print(f'STARTUP: WARNING - Index \"{pinecone_index_name}\" NOT FOUND')
-                              print(f'STARTUP: Available indexes are: {available_indexes}')
-                      else:
-                          # Direct string check in raw response
-                          target_str = f\"'name': '{pinecone_index_name}'\"
-                          raw_response = str(indexes)
-                          if target_str in raw_response:
-                              print(f'STARTUP: Found index via direct string match: \"{pinecone_index_name}\"')
+                      if isinstance(indexes, dict) and 'indexes' in indexes:
+                          index_list = [idx.get('name') for idx in indexes.get('indexes', []) if isinstance(idx, dict) and 'name' in idx]
+                          print(f'STARTUP: Available indexes: {index_list}')
+                          if pinecone_index_name in index_list:
+                              print(f'STARTUP: SUCCESS - Index \"{pinecone_index_name}\" found!')
                           else:
-                              print(f'STARTUP: WARNING - Index \"{pinecone_index_name}\" NOT found in raw response')
-                              print(f'STARTUP: Raw response: {raw_response[:200]}...')
+                              print(f'STARTUP: WARNING - Index \"{pinecone_index_name}\" NOT FOUND in available indexes')
+                              # Check for case-insensitive matches
+                              for idx in index_list:
+                                  if idx.lower() == pinecone_index_name.lower():
+                                      print(f'STARTUP: Found case-insensitive match: \"{idx}\" vs configured \"{pinecone_index_name}\"')
                   except Exception as list_e:
                       print(f'STARTUP: Error listing indexes with V2 API: {str(list_e)}')
-                      import traceback
-                      print(f'STARTUP: Error details: {traceback.format_exc()}')
               
               elif hasattr(pinecone, 'init'):
                   # V1 API
@@ -207,8 +172,6 @@ except Exception as e:
                                       print(f'STARTUP: Found case-insensitive match: \"{idx}\" vs configured \"{pinecone_index_name}\"')
                   except Exception as list_e:
                       print(f'STARTUP: Error listing indexes with V1 API: {str(list_e)}')
-                      import traceback
-                      print(f'STARTUP: Error details: {traceback.format_exc()}')
           else:
               print('STARTUP: WARNING - No Pinecone API key found in environment variables')
       except Exception as e:
@@ -218,7 +181,7 @@ except Exception as e:
       " &&
       echo "===== END STARTUP DIAGNOSTICS =====" &&
       # Start the application
-      gunicorn -k uvicorn.workers.UvicornWorker -w 1 app.main:app --host 0.0.0.0:$PORT
+      gunicorn -k uvicorn.workers.UvicornWorker -w 1 app.main:app --bind 0.0.0.0:$PORT
     envVars:
       - key: OPENAI_API_KEY
         sync: false

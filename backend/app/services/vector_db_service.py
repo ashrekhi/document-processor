@@ -396,73 +396,219 @@ class VectorDBService:
                     # Check if index exists and create if needed
                     print(f"DEBUG: Ensuring index '{self.index_name}' exists")
                     
-                    # First, list all available indexes to debug
-                    print(f"DEBUG: Listing all available Pinecone indexes in account...")
-                    all_indexes = self.pc.list_indexes()
-                    print(f"DEBUG: ALL AVAILABLE INDEXES: {all_indexes}")
-                    print(f"DEBUG: Type of all_indexes: {type(all_indexes)}")
+                    # List all indexes with retry mechanism
+                    print(f"DEBUG: Listing all Pinecone indexes...")
+                    print(f"DEBUG: Using API key beginning with: {self.pinecone_api_key[:5]}...")
+                    print(f"DEBUG: Current environment settings:")
+                    print(f"  - PINECONE_INDEX: {self.index_name}")
+                    print(f"  - PINECONE_CLOUD: {self.pinecone_cloud}")
+                    print(f"  - PINECONE_REGION: {self.pinecone_region}")
+                    print(f"  - PINECONE_ENVIRONMENT: {self.pinecone_env}")
+                    print(f"  - API Key Type: {'New format (pcsk_)' if self.is_new_api_key else 'Classic format'}")
+                    print(f"  - API Version: {'V2 (Pinecone class)' if PINECONE_NEW_API else 'V1 (init function)'}")
                     
-                    # Print index list structure for diagnosis
-                    if isinstance(all_indexes, dict) and 'indexes' in all_indexes:
-                        print(f"DEBUG: 'indexes' key found in response")
-                        print(f"DEBUG: Type of all_indexes['indexes']: {type(all_indexes['indexes'])}")
-                        print(f"DEBUG: Length of all_indexes['indexes']: {len(all_indexes['indexes'])}")
-                        
-                        # Print each index's structure
-                        for i, idx in enumerate(all_indexes['indexes']):
-                            print(f"DEBUG: Index {i} type: {type(idx)}")
-                            if isinstance(idx, dict):
-                                print(f"DEBUG: Index {i} keys: {idx.keys()}")
-                                if 'name' in idx:
-                                    print(f"DEBUG: Index {i} name: {idx['name']}")
-                    else:
-                        print(f"DEBUG: No 'indexes' key or not a dict response. Type: {type(all_indexes)}")
-                        if isinstance(all_indexes, list):
-                            print(f"DEBUG: Index list contains {len(all_indexes)} items")
+                    max_retries = 3
+                    retry_delay = 1  # Start with 1 second delay
+                    indexes = None
                     
-                    # Direct check for our target index in response
-                    target_index_str = f"'name': '{self.index_name}'"
-                    if target_index_str in str(all_indexes):
-                        print(f"DEBUG: Found target index '{self.index_name}' in raw response string")
+                    for retry in range(max_retries):
+                        try:
+                            print(f"DEBUG: Attempting to list indexes (attempt {retry + 1}/{max_retries})")
+                            indexes = self.pc.list_indexes()
+                            if indexes:
+                                break
+                        except Exception as e:
+                            print(f"DEBUG: Error listing indexes on attempt {retry + 1}: {str(e)}")
+                            if retry < max_retries - 1:
+                                print(f"DEBUG: Retrying in {retry_delay} seconds...")
+                                time.sleep(retry_delay)
+                                retry_delay *= 2  # Exponential backoff
+                            else:
+                                print(f"DEBUG: All retry attempts failed")
+                                raise e
                     
-                    # Proceed with index creation check/process
-                    self._ensure_index_exists()
+                    if not indexes:
+                        print(f"DEBUG: Failed to get index list after {max_retries} attempts")
+                        return False
                     
-                    # Connect to the index
-                    print(f"Connecting to Pinecone index: {self.index_name}")
+                    print(f"DEBUG: Raw index list response: {indexes}")
+                    print(f"DEBUG: Response type: {type(indexes)}")
+                    print(f"DEBUG: Response structure: {json.dumps(indexes, indent=2) if isinstance(indexes, (dict, list)) else 'Not JSON serializable'}")
                     
-                    # Initialize the index with the appropriate API version
+                    # Extract available indexes
+                    available_indexes = []
                     if PINECONE_NEW_API:
-                        print(f"Using new API format to connect to index")
-                        self.pinecone_index = self.pc.Index(self.index_name)
-                    else:
-                        print(f"Using old API format to connect to index")
-                        self.pinecone_index = self.pc.Index(name=self.index_name)
-                        
-                    print(f"DEBUG: Got Pinecone index reference")
-                    
-                    # Test the connection and dump DETAILED stats
-                    print(f"DEBUG: About to describe index stats")
-                    try:
-                        stats = self.pinecone_index.describe_index_stats()
-                        print(f"Index stats: {stats}")
-                        
-                        # Detailed analysis of the index stats to debug namespace issues
-                        print(f"DEBUG: DETAILED INDEX ANALYSIS")
-                        if 'namespaces' in stats:
-                            ns_count = len(stats['namespaces'])
-                            print(f"Found {ns_count} namespaces in index '{self.index_name}'")
-                            for ns_name, ns_data in stats['namespaces'].items():
-                                vector_count = ns_data.get('vector_count', 0)
-                                print(f"  Namespace '{ns_name}': {vector_count} vectors")
+                        # New API format returns an IndexList object
+                        try:
+                            # Get the list of indexes using our safe helper
+                            index_list = self._safe_get_value(indexes, 'indexes')
+                            if not index_list:
+                                print(f"DEBUG: V2 API - Could not find indexes in response")
+                                print(f"DEBUG: V2 API - Response type: {type(indexes)}")
+                                print(f"DEBUG: V2 API - Available attributes: {dir(indexes)}")
+                                return False
+
+                            print(f"DEBUG: V2 API - Found index_list type: {type(index_list)}")
+                            print(f"DEBUG: V2 API - Index list content: {index_list}")
+                            
+                            # Extract names from the index objects
+                            for idx in index_list:
+                                name = self._safe_get_value(idx, 'name')
+                                if name:
+                                    available_indexes.append(name)
+                                else:
+                                    print(f"DEBUG: V2 API - Could not extract name from index: {idx}")
+                            
+                            print(f"DEBUG: V2 API - Extracted names: {available_indexes}")
+                        except Exception as e:
+                            print(f"DEBUG: V2 API - Error extracting names: {str(e)}")
+                            print(f"DEBUG: V2 API - Response dump: {indexes}")
+                            if hasattr(indexes, '__dict__'):
+                                print(f"DEBUG: V2 API - Object attributes: {indexes.__dict__}")
                         else:
-                            print(f"No namespaces found in index '{self.index_name}'")
-                        
-                        print(f"DEBUG: Successfully connected to Pinecone index '{self.index_name}'")
-                    except Exception as stats_error:
-                        print(f"WARNING: Error getting index stats: {str(stats_error)}")
-                        print(f"DEBUG: Will attempt to continue anyway")
+                            print(f"DEBUG: V2 API - Unexpected response format:")
+                            print(f"  - Is dict? {isinstance(indexes, dict)}")
+                            print(f"  - Has 'indexes' key? {'indexes' in indexes if isinstance(indexes, dict) else False}")
+                            print(f"  - Available keys: {indexes.keys() if isinstance(indexes, dict) else 'N/A'}")
+                    else:
+                        # Old API returns a list of string names
+                        if isinstance(indexes, list):
+                            print(f"DEBUG: V1 API - Found list type response")
+                            print(f"DEBUG: V1 API - List items types: {[type(idx) for idx in indexes]}")
+                            available_indexes = indexes
+                        # For adapter case, also check dict format
+                        elif isinstance(indexes, dict) and 'indexes' in indexes:
+                            index_list = indexes['indexes']
+                            print(f"DEBUG: V1 Adapter - Found index_list type: {type(index_list)}")
+                            print(f"DEBUG: V1 Adapter - Index list content: {index_list}")
+                            try:
+                                available_indexes = [idx['name'] for idx in index_list if isinstance(idx, dict) and 'name' in idx]
+                                print(f"DEBUG: V1 Adapter - Extracted names: {available_indexes}")
+                            except Exception as e:
+                                print(f"DEBUG: V1 Adapter - Error extracting names: {str(e)}")
+                        else:
+                            print(f"DEBUG: V1 API - Unexpected response format:")
+                            print(f"  - Response type: {type(indexes)}")
+                            print(f"  - Content: {indexes}")
                     
+                    print(f"DEBUG: Available indexes: {available_indexes}")
+                    
+                    # Check if the index already exists
+                    index_exists = self.index_name in available_indexes
+                    
+                    # Also check for case-insensitive matches which might be causing confusion
+                    case_insensitive_match = None
+                    for idx in available_indexes:
+                        if idx.lower() == self.index_name.lower() and idx != self.index_name:
+                            case_insensitive_match = idx
+                            print(f"DEBUG: Case-insensitive match found: '{idx}' vs target '{self.index_name}'")
+                            print(f"DEBUG: Consider updating your PINECONE_INDEX environment variable to use the exact case: '{idx}'")
+                    
+                    # If the exact index doesn't exist but a case-insensitive match does, use that instead
+                    if not index_exists and case_insensitive_match:
+                        print(f"DEBUG: Using case-insensitive match '{case_insensitive_match}' instead of '{self.index_name}'")
+                        self.index_name = case_insensitive_match
+                        index_exists = True
+                    
+                    print(f"DEBUG: Final result - Index '{self.index_name}' exists: {index_exists}")
+                    
+                    if not index_exists:
+                        # If no specific index was requested, try to use any existing index 
+                        # instead of creating a new one
+                        if not os.getenv('PINECONE_INDEX') and available_indexes:
+                            print(f"DEBUG: No specific index was requested, and found {len(available_indexes)} existing indexes")
+                            print(f"DEBUG: Using existing index '{available_indexes[0]}' instead of creating a new one")
+                            self.index_name = available_indexes[0]
+                            return
+                        
+                        print(f"Index '{self.index_name}' not found. Creating...")
+                        
+                        # Create index based on API key format and API version
+                        try:
+                            if self.is_new_api_key:
+                                if not self.pinecone_region:
+                                    print(f"ERROR: PINECONE_REGION is required for creating indexes with new API keys")
+                                    print(f"Add PINECONE_REGION=us-east-1 to your .env file")
+                                    raise ValueError("PINECONE_REGION environment variable is required but not set")
+                                
+                                print(f"DEBUG: Creating index with {'ServerlessSpec' if PINECONE_NEW_API else 'environment'} for new API key format")
+                                print(f"DEBUG: Using cloud={self.pinecone_cloud or 'aws'}, region={self.pinecone_region}")
+                                
+                                try:
+                                    if PINECONE_NEW_API:
+                                        self.pc.create_index(
+                                            name=self.index_name,
+                                            dimension=1536,
+                                            metric="cosine",
+                                            spec=ServerlessSpec(
+                                                cloud=self.pinecone_cloud or "aws",
+                                                region=self.pinecone_region
+                                            )
+                                        )
+                                    else:
+                                        # Old API format
+                                        self.pc.create_index(
+                                            name=self.index_name,
+                                            dimension=1536,
+                                            metric="cosine"
+                                        )
+                                    print(f"Created new Pinecone index: {self.index_name}")
+                                except Exception as create_err:
+                                    error_msg = str(create_err).lower()
+                                    # Check specifically for 409 conflict error
+                                    if "409" in error_msg or "already exists" in error_msg:
+                                        print(f"INFO: Index '{self.index_name}' already exists (confirmed from 409 response)")
+                                        # This is not an error condition - the index exists which is what we want
+                                        return
+                                    else:
+                                        print(f"Error creating index: {str(create_err)}")
+                                    raise create_err
+                            else:
+                                print(f"DEBUG: Creating index for old API key format")
+                                if PINECONE_NEW_API:
+                                    self.pc.create_index(
+                                        name=self.index_name,
+                                        dimension=1536,
+                                        metric="cosine",
+                                        environment=self.pinecone_env
+                                    )
+                                else:
+                                    # Old API direct call
+                                    self.pc.create_index(
+                                        name=self.index_name,
+                                        dimension=1536,
+                                        metric="cosine",
+                                        environment=self.pinecone_env
+                                    )
+                                
+                            print(f"Created new Pinecone index: {self.index_name}")
+                        except Exception as create_err:
+                            error_msg = str(create_err).lower()
+                            print(f"Error creating index: {str(create_err)}")
+                            
+                            # Check if it's a quota-related error
+                            if any(term in error_msg for term in ["quota", "limit", "max pods", "reached"]):
+                                print(f"QUOTA ERROR: Unable to create new index due to account limitations")
+                                
+                                # If there are existing indexes, use one of them instead
+                                if available_indexes:
+                                    print(f"Found {len(available_indexes)} existing indexes")
+                                    print(f"Using existing index '{available_indexes[0]}' instead of creating a new one")
+                                    self.index_name = available_indexes[0]
+                                    print(f"Switched to using existing index: {self.index_name}")
+                                else:
+                                    print(f"ERROR: No existing indexes available to use as fallback")
+                                    if os.getenv('ALLOW_DEV_FALLBACK', '').lower() == 'true':
+                                        print(f"WARNING: Using development fallback mode with mock implementation")
+                                        # The calling method will handle setting up mock implementation
+                                    else:
+                                        raise ValueError("No Pinecone indexes available and unable to create new ones due to quota limits")
+                            else:
+                                import traceback
+                                print(f"DEBUG: Full index creation error details:\n{traceback.format_exc()}")
+                                raise ValueError(f"Failed to create Pinecone index: {str(create_err)}")
+                    else:
+                        print(f"Pinecone index '{self.index_name}' already exists.")
                 except Exception as index_error:
                     print(f"ERROR: Failed to connect to Pinecone index: {str(index_error)}")
                     print(f"DEBUG: Full error details:")
@@ -501,10 +647,30 @@ class VectorDBService:
             print(f"ERROR: Failed to initialize VectorDBService: {str(e)}")
             raise ValueError(f"Failed to initialize VectorDBService: {str(e)}")
     
+    def _safe_get_value(self, obj, key):
+        """Safely extract a value from a Pinecone object or dictionary"""
+        try:
+            # Try attribute access first (for Pinecone objects)
+            if hasattr(obj, key):
+                return getattr(obj, key)
+            # Then try dictionary access
+            elif isinstance(obj, dict) and key in obj:
+                return obj[key]
+            # For list-like objects that might be wrapped
+            elif hasattr(obj, '__getitem__'):
+                try:
+                    return obj[key]
+                except:
+                    return None
+            return None
+        except Exception as e:
+            print(f"DEBUG: Error extracting '{key}' from object: {str(e)}")
+            return None
+
     def _ensure_index_exists(self):
         """Check if the index exists and create it if it doesn't"""
         try:
-            # List all indexes
+            # List all indexes with retry mechanism
             print(f"DEBUG: Listing all Pinecone indexes...")
             print(f"DEBUG: Using API key beginning with: {self.pinecone_api_key[:5]}...")
             print(f"DEBUG: Current environment settings:")
@@ -515,48 +681,89 @@ class VectorDBService:
             print(f"  - API Key Type: {'New format (pcsk_)' if self.is_new_api_key else 'Classic format'}")
             print(f"  - API Version: {'V2 (Pinecone class)' if PINECONE_NEW_API else 'V1 (init function)'}")
             
-            indexes = self.pc.list_indexes()
-            print(f"DEBUG: Raw index list response: {indexes}")
+            max_retries = 3
+            retry_delay = 1  # Start with 1 second delay
+            indexes = None
             
-            # Extract available indexes - FIX EXTRACTION LOGIC
+            for retry in range(max_retries):
+                try:
+                    print(f"DEBUG: Attempting to list indexes (attempt {retry + 1}/{max_retries})")
+                    indexes = self.pc.list_indexes()
+                    if indexes:
+                        break
+                except Exception as e:
+                    print(f"DEBUG: Error listing indexes on attempt {retry + 1}: {str(e)}")
+                    if retry < max_retries - 1:
+                        print(f"DEBUG: Retrying in {retry_delay} seconds...")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    else:
+                        print(f"DEBUG: All retry attempts failed")
+                        raise e
+            
+            if not indexes:
+                print(f"DEBUG: Failed to get index list after {max_retries} attempts")
+                return False
+                
+            print(f"DEBUG: Raw index list response: {indexes}")
+            print(f"DEBUG: Response type: {type(indexes)}")
+            print(f"DEBUG: Response structure: {json.dumps(indexes, indent=2) if isinstance(indexes, (dict, list)) else 'Not JSON serializable'}")
+            
+            # Extract available indexes
             available_indexes = []
             if PINECONE_NEW_API:
-                # New API format returns a dict with 'indexes' key
-                if isinstance(indexes, dict) and 'indexes' in indexes:
-                    index_list = indexes['indexes']
-                    print(f"DEBUG: V2 API - Found {len(index_list)} indexes: {index_list}")
-                    # Fix: Directly access index names without filtering
+                # New API format returns an IndexList object
+                try:
+                    # Get the list of indexes using our safe helper
+                    index_list = self._safe_get_value(indexes, 'indexes')
+                    if not index_list:
+                        print(f"DEBUG: V2 API - Could not find indexes in response")
+                        print(f"DEBUG: V2 API - Response type: {type(indexes)}")
+                        print(f"DEBUG: V2 API - Available attributes: {dir(indexes)}")
+                        return False
+
+                    print(f"DEBUG: V2 API - Found index_list type: {type(index_list)}")
+                    print(f"DEBUG: V2 API - Index list content: {index_list}")
+                    
+                    # Extract names from the index objects
                     for idx in index_list:
-                        if isinstance(idx, dict) and 'name' in idx:
-                            idx_name = idx['name']
-                            available_indexes.append(idx_name)
-                            print(f"DEBUG: Found index: '{idx_name}'")
+                        name = self._safe_get_value(idx, 'name')
+                        if name:
+                            available_indexes.append(name)
+                        else:
+                            print(f"DEBUG: V2 API - Could not extract name from index: {idx}")
+                            
+                    print(f"DEBUG: V2 API - Extracted names: {available_indexes}")
+                except Exception as e:
+                    print(f"DEBUG: V2 API - Error extracting names: {str(e)}")
+                    print(f"DEBUG: V2 API - Response dump: {indexes}")
+                    if hasattr(indexes, '__dict__'):
+                        print(f"DEBUG: V2 API - Object attributes: {indexes.__dict__}")
+                else:
+                    print(f"DEBUG: V2 API - Unexpected response format:")
+                    print(f"  - Is dict? {isinstance(indexes, dict)}")
+                    print(f"  - Has 'indexes' key? {'indexes' in indexes if isinstance(indexes, dict) else False}")
+                    print(f"  - Available keys: {indexes.keys() if isinstance(indexes, dict) else 'N/A'}")
             else:
                 # Old API returns a list of string names
                 if isinstance(indexes, list):
-                    print(f"DEBUG: V1 API - Found {len(indexes)} indexes: {indexes}")
+                    print(f"DEBUG: V1 API - Found list type response")
+                    print(f"DEBUG: V1 API - List items types: {[type(idx) for idx in indexes]}")
                     available_indexes = indexes
                 # For adapter case, also check dict format
                 elif isinstance(indexes, dict) and 'indexes' in indexes:
                     index_list = indexes['indexes']
-                    print(f"DEBUG: V1 Adapter - Found {len(index_list)} indexes: {index_list}")
-                    # Fix: Use more robust extraction
-                    for idx in index_list:
-                        if isinstance(idx, dict) and 'name' in idx:
-                            idx_name = idx['name']
-                            available_indexes.append(idx_name)
-                            print(f"DEBUG: Found index: '{idx_name}'")
-            
-            # Additional fallback - extract directly from raw response if still empty
-            if not available_indexes and isinstance(indexes, dict):
-                print(f"DEBUG: Using fallback extraction method for indexes")
-                raw_str = str(indexes)
-                import re
-                # Look for name patterns in the string representation
-                name_matches = re.findall(r"'name'\s*:\s*'([^']+)'", raw_str)
-                if name_matches:
-                    available_indexes = name_matches
-                    print(f"DEBUG: Extracted indexes using regex: {available_indexes}")
+                    print(f"DEBUG: V1 Adapter - Found index_list type: {type(index_list)}")
+                    print(f"DEBUG: V1 Adapter - Index list content: {index_list}")
+                    try:
+                        available_indexes = [idx['name'] for idx in index_list if isinstance(idx, dict) and 'name' in idx]
+                        print(f"DEBUG: V1 Adapter - Extracted names: {available_indexes}")
+                    except Exception as e:
+                        print(f"DEBUG: V1 Adapter - Error extracting names: {str(e)}")
+                else:
+                    print(f"DEBUG: V1 API - Unexpected response format:")
+                    print(f"  - Response type: {type(indexes)}")
+                    print(f"  - Content: {indexes}")
             
             print(f"DEBUG: Available indexes: {available_indexes}")
             
@@ -601,23 +808,35 @@ class VectorDBService:
                         print(f"DEBUG: Creating index with {'ServerlessSpec' if PINECONE_NEW_API else 'environment'} for new API key format")
                         print(f"DEBUG: Using cloud={self.pinecone_cloud or 'aws'}, region={self.pinecone_region}")
                         
-                        if PINECONE_NEW_API:
-                            self.pc.create_index(
-                                name=self.index_name,
-                                dimension=1536,
-                                metric="cosine",
-                                spec=ServerlessSpec(
-                                    cloud=self.pinecone_cloud or "aws",
-                                    region=self.pinecone_region
+                        try:
+                            if PINECONE_NEW_API:
+                                self.pc.create_index(
+                                    name=self.index_name,
+                                    dimension=1536,
+                                    metric="cosine",
+                                    spec=ServerlessSpec(
+                                        cloud=self.pinecone_cloud or "aws",
+                                        region=self.pinecone_region
+                                    )
                                 )
-                            )
-                        else:
-                            # Old API format
-                            self.pc.create_index(
-                                name=self.index_name,
-                                dimension=1536,
-                                metric="cosine"
-                            )
+                            else:
+                                # Old API format
+                                self.pc.create_index(
+                                    name=self.index_name,
+                                    dimension=1536,
+                                    metric="cosine"
+                                )
+                            print(f"Created new Pinecone index: {self.index_name}")
+                        except Exception as create_err:
+                            error_msg = str(create_err).lower()
+                            # Check specifically for 409 conflict error
+                            if "409" in error_msg or "already exists" in error_msg:
+                                print(f"INFO: Index '{self.index_name}' already exists (confirmed from 409 response)")
+                                # This is not an error condition - the index exists which is what we want
+                                return
+                            else:
+                                print(f"Error creating index: {str(create_err)}")
+                                raise create_err
                     else:
                         print(f"DEBUG: Creating index for old API key format")
                         if PINECONE_NEW_API:
@@ -640,13 +859,6 @@ class VectorDBService:
                 except Exception as create_err:
                     error_msg = str(create_err).lower()
                     print(f"Error creating index: {str(create_err)}")
-                    
-                    # Fix: Better detection of index already exists from error message
-                    if "already_exists" in error_msg or "already exists" in error_msg or "409" in error_msg:
-                        print(f"DEBUG: Index '{self.index_name}' already exists (from error message)")
-                        print(f"DEBUG: This means our index detection logic missed it, but the index does exist")
-                        index_exists = True
-                        return
                     
                     # Check if it's a quota-related error
                     if any(term in error_msg for term in ["quota", "limit", "max pods", "reached"]):
@@ -673,7 +885,7 @@ class VectorDBService:
                 print(f"Pinecone index '{self.index_name}' already exists.")
         except Exception as e:
             # Check if the error is a 409 Conflict (index already exists)
-            if "409" in str(e) and ("ALREADY_EXISTS" in str(e) or "already exists" in str(e).lower()):
+            if "409" in str(e) and "ALREADY_EXISTS" in str(e):
                 print(f"Index '{self.index_name}' already exists (verified from error response).")
                 # This is actually not an error, the index exists which is what we want
                 return
@@ -687,21 +899,14 @@ class VectorDBService:
                 indexes = self.pc.list_indexes()
                 available_indexes = []
                 
-                # Fix: More robust index extraction for recovery
-                if isinstance(indexes, dict) and 'indexes' in indexes:
-                    for idx in indexes['indexes']:
-                        if isinstance(idx, dict) and 'name' in idx:
-                            available_indexes.append(idx['name'])
-                elif isinstance(indexes, list):
-                    available_indexes = indexes
-                
-                # Fallback to regex if needed
-                if not available_indexes and isinstance(indexes, dict):
-                    raw_str = str(indexes)
-                    import re
-                    name_matches = re.findall(r"'name'\s*:\s*'([^']+)'", raw_str)
-                    if name_matches:
-                        available_indexes = name_matches
+                if PINECONE_NEW_API:
+                    if isinstance(indexes, dict) and 'indexes' in indexes:
+                        available_indexes = [idx['name'] for idx in indexes['indexes'] if isinstance(idx, dict) and 'name' in idx]
+                else:
+                    if isinstance(indexes, list):
+                        available_indexes = indexes
+                    elif isinstance(indexes, dict) and 'indexes' in indexes:
+                        available_indexes = [idx['name'] for idx in indexes['indexes'] if isinstance(idx, dict) and 'name' in idx]
                 
                 if available_indexes:
                     print(f"ERROR RECOVERY: Using existing index '{available_indexes[0]}' instead of '{self.index_name}'")
