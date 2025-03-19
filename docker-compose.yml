@@ -12,8 +12,9 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - METADATA_BUCKET=${METADATA_BUCKET}
       - PINECONE_API_KEY=${PINECONE_API_KEY}
-      - PINECONE_ENVIRONMENT=${PINECONE_ENVIRONMENT}
       - PINECONE_INDEX=${PINECONE_INDEX}
+      - PINECONE_CLOUD=${PINECONE_CLOUD}
+      - PINECONE_REGION=${PINECONE_REGION}
     volumes:
       - ./backend:/app
     restart: unless-stopped

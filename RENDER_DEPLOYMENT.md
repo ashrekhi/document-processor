@@ -34,8 +34,9 @@ This is the easiest way to deploy both the frontend and backend services in one 
    - OPENAI_API_KEY
    - METADATA_BUCKET
    - PINECONE_API_KEY
-   - PINECONE_ENVIRONMENT
    - PINECONE_INDEX
+   - PINECONE_CLOUD
+   - PINECONE_REGION
 8. Click "Apply" to deploy both services
 
 ## Option 2: Manual Deployment
@@ -60,8 +61,9 @@ This is the easiest way to deploy both the frontend and backend services in one 
    - OPENAI_API_KEY: your-openai-api-key
    - METADATA_BUCKET: your-s3-bucket-name
    - PINECONE_API_KEY: your-pinecone-api-key
-   - PINECONE_ENVIRONMENT: your-pinecone-environment
    - PINECONE_INDEX: your-pinecone-index
+   - PINECONE_CLOUD: aws
+   - PINECONE_REGION: us-east-1
 7. Click "Create Web Service"
 
 ### Frontend Deployment

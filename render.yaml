@@ -112,13 +112,11 @@ except Exception as e:
           pinecone_index_name = os.getenv('PINECONE_INDEX', 'radiant-documents')
           pinecone_cloud = os.getenv('PINECONE_CLOUD', 'aws')
           pinecone_region = os.getenv('PINECONE_REGION', 'us-east-1')
-          pinecone_env = os.getenv('PINECONE_ENVIRONMENT')
           
           print(f'STARTUP: Environment settings:')
           print(f'  PINECONE_INDEX: {pinecone_index_name}')
           print(f'  PINECONE_CLOUD: {pinecone_cloud}')
           print(f'  PINECONE_REGION: {pinecone_region}')
-          print(f'  PINECONE_ENVIRONMENT: {pinecone_env if pinecone_env else \"Not set\"}')
           
           if pinecone_api_key:
               print(f'STARTUP: API key found beginning with: {pinecone_api_key[:5]}...')
@@ -146,32 +144,8 @@ except Exception as e:
                                       print(f'STARTUP: Found case-insensitive match: \"{idx}\" vs configured \"{pinecone_index_name}\"')
                   except Exception as list_e:
                       print(f'STARTUP: Error listing indexes with V2 API: {str(list_e)}')
-              
-              elif hasattr(pinecone, 'init'):
-                  # V1 API
-                  print('STARTUP: Using V1 API to list indexes')
-                  try:
-                      if pinecone_env:
-                          pinecone.init(api_key=pinecone_api_key, environment=pinecone_env)
-                      else:
-                          pinecone.init(api_key=pinecone_api_key)
-                          
-                      indexes = pinecone.list_indexes()
-                      print(f'STARTUP: V1 API successfully listed indexes: {indexes}')
-                      
-                      # Check if our index exists in the V1 format
-                      if isinstance(indexes, list):
-                          print(f'STARTUP: Available indexes: {indexes}')
-                          if pinecone_index_name in indexes:
-                              print(f'STARTUP: SUCCESS - Index \"{pinecone_index_name}\" found!')
-                          else:
-                              print(f'STARTUP: WARNING - Index \"{pinecone_index_name}\" NOT FOUND in available indexes')
-                              # Check for case-insensitive matches
-                              for idx in indexes:
-                                  if idx.lower() == pinecone_index_name.lower():
-                                      print(f'STARTUP: Found case-insensitive match: \"{idx}\" vs configured \"{pinecone_index_name}\"')
-                  except Exception as list_e:
-                      print(f'STARTUP: Error listing indexes with V1 API: {str(list_e)}')
+              else:
+                  print('STARTUP: ERROR - Pinecone V2 API class not found. Please ensure pinecone package version 2.2.2 is installed correctly.')
           else:
               print('STARTUP: WARNING - No Pinecone API key found in environment variables')
       except Exception as e:

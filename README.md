@@ -55,52 +55,12 @@ A modern enterprise application for processing documents using RAG (Retrieval-Au
    OPENAI_API_KEY=your_openai_api_key
    METADATA_BUCKET=your_s3_bucket_name
    PINECONE_API_KEY=your_pinecone_api_key
-   PINECONE_ENVIRONMENT=your_pinecone_environment
-   PINECONE_INDEX=your_pinecone_index
+   PINECONE_INDEX=your_pinecone_index_name
+   PINECONE_CLOUD=aws
+   PINECONE_REGION=us-east-1
    ```
 
 6. Start the backend server:
    ```
    uvicorn app.main:app --reload
    ```
-
-### Frontend Setup
-
-1. Navigate to the frontend directory:
-   ```
-   cd frontend
-   ```
-
-2. Install dependencies:
-   ```
-   npm install
-   ```
-
-3. Create a `.env` file in the frontend directory:
-   ```
-   REACT_APP_API_URL=http://localhost:8000
-   ```
-
-4. Start the frontend server:
-   ```
-   npm start
-   ```
-
-## Deployment
-
-This application can be deployed to Render or other cloud platforms. For detailed Render deployment instructions, please see [RENDER_DEPLOYMENT.md](./RENDER_DEPLOYMENT.md).
-
-## Docker Deployment
-
-The application includes Docker configuration for containerized deployment:
-
-1. Make sure Docker and Docker Compose are installed on your system
-2. Create a `.env` file in the root directory with all required environment variables
-3. Run the application:
-   ```
-   docker-compose up
-   ```
-
-## License
-
-[MIT License](LICENSE) 

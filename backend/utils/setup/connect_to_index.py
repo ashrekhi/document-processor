@@ -1,10 +1,30 @@
 import os
-import pinecone
 from dotenv import load_dotenv
+from pinecone import Pinecone
 import traceback
 
 # Load environment variables
 load_dotenv()
+
+# Get Pinecone credentials
+api_key = os.getenv('PINECONE_API_KEY')
+index_name = os.getenv('PINECONE_INDEX', 'radiant-documents')
+cloud = os.getenv('PINECONE_CLOUD', 'aws')
+region = os.getenv('PINECONE_REGION', 'us-east-1')
+
+# Initialize Pinecone
+pc = Pinecone(api_key=api_key, cloud=cloud)
+
+try:
+    # Connect to the index
+    index = pc.Index(index_name)
+    print(f"Successfully connected to index: {index_name}")
+    
+    # Get index stats
+    stats = index.describe_index_stats()
+    print(f"Index stats: {stats}")
+except Exception as e:
+    print(f"Error connecting to index: {str(e)}")
 
 def connect_to_index():
     # Get Pinecone credentials from environment

@@ -115,13 +115,16 @@ class EmbeddingService:
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(__name__)
         
-        # Get environment variables
-        self.api_key = os.getenv('PINECONE_API_KEY')
+        # Get configuration from environment variables
+        self.openai_api_key = os.getenv('OPENAI_API_KEY')
+        self.pinecone_api_key = os.getenv('PINECONE_API_KEY')  # Correct API key for Pinecone
+        self.model = os.getenv('EMBEDDING_MODEL', 'text-embedding-ada-002')
+        self.max_retries = int(os.getenv('EMBEDDING_MAX_RETRIES', '3'))
+        self.retry_delay = float(os.getenv('EMBEDDING_RETRY_DELAY', '1.0'))
         self.cloud = os.getenv('PINECONE_CLOUD', 'aws')
         self.region = os.getenv('PINECONE_REGION', 'us-east-1')
         self.environment = os.getenv('PINECONE_ENVIRONMENT')  # For backwards compatibility
         self.index_name = os.getenv('PINECONE_INDEX', 'radiant-documents')
-        self.openai_api_key = os.getenv('OPENAI_API_KEY')
         
         # Initialize OpenAI client for embeddings
         if not self.openai_api_key:
@@ -132,7 +135,7 @@ class EmbeddingService:
             self.openai_client = OpenAI(api_key=self.openai_api_key)
             self.openai_available = True
         
-        if not self.api_key:
+        if not self.pinecone_api_key:
             self.logger.warning("Pinecone API key not set. Using mock embeddings.")
             self.pinecone_available = False
             return
@@ -147,17 +150,17 @@ class EmbeddingService:
                 self.logger.info("Using V2 Pinecone API format")
                 if self.environment:
                     self.logger.info(f"Using environment parameter: {self.environment}")
-                    pc = Pinecone(api_key=self.api_key, environment=self.environment)
+                    pc = Pinecone(api_key=self.pinecone_api_key, environment=self.environment)
                 else:
                     self.logger.info(f"Using cloud parameter: {self.cloud}")
-                    pc = Pinecone(api_key=self.api_key, cloud=self.cloud)
+                    pc = Pinecone(api_key=self.pinecone_api_key, cloud=self.cloud)
             else:
                 # Old API format (V1)
                 self.logger.info("Using V1 Pinecone API format")
                 if self.environment:
-                    pc = Pinecone(api_key=self.api_key, environment=self.environment)
+                    pc = Pinecone(api_key=self.pinecone_api_key, environment=self.environment)
                 else:
-                    pc = Pinecone(api_key=self.api_key)
+                    pc = Pinecone(api_key=self.pinecone_api_key)
                     
             self.pinecone_available = True
             

@@ -57,8 +57,9 @@ def main():
         "OPENAI_API_KEY",
         "METADATA_BUCKET",
         "PINECONE_API_KEY",
-        "PINECONE_ENVIRONMENT",
-        "PINECONE_INDEX"
+        "PINECONE_INDEX",
+        "PINECONE_CLOUD",
+        "PINECONE_REGION",
     ]
     
     backend_missing_vars, backend_found_vars = check_env_vars_in_dotenv(backend_env_file, backend_required_vars)

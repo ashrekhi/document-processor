@@ -1,11 +1,41 @@
 import os
-import pinecone
 from dotenv import load_dotenv
+from pinecone import Pinecone
 import traceback
 import requests
 
 # Load environment variables
 load_dotenv()
+
+# Get Pinecone credentials
+api_key = os.getenv('PINECONE_API_KEY')
+cloud = os.getenv('PINECONE_CLOUD', 'aws')
+region = os.getenv('PINECONE_REGION', 'us-east-1')
+
+print("Checking Pinecone account status...")
+print(f"Cloud: {cloud}")
+print(f"Region: {region}")
+
+try:
+    # Initialize Pinecone
+    pc = Pinecone(api_key=api_key, cloud=cloud)
+    
+    # List available indexes
+    indexes = pc.list_indexes()
+    print(f"Available indexes: {indexes}")
+    
+    # Get detailed information about each index
+    for index_info in indexes.get('indexes', []):
+        index_name = index_info.get('name')
+        if index_name:
+            index = pc.Index(index_name)
+            stats = index.describe_index_stats()
+            print(f"\nIndex '{index_name}' stats:")
+            print(f"  - Vector count: {stats.get('total_vector_count', 0)}")
+            print(f"  - Dimension: {stats.get('dimension', 'unknown')}")
+            print(f"  - Namespaces: {list(stats.get('namespaces', {}).keys())}")
+except Exception as e:
+    print(f"Error checking Pinecone account: {str(e)}")
 
 def check_pinecone_account():
     # Get Pinecone credentials from environment

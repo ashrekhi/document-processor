@@ -1,86 +1,84 @@
 import os
-import pinecone
 from dotenv import load_dotenv
+from pinecone import Pinecone
+import json
 import traceback
 
 # Load environment variables
 load_dotenv()
 
-def test_pinecone_connection_detailed():
-    # Get Pinecone credentials from environment
-    api_key = os.getenv('PINECONE_API_KEY')
-    environment = os.getenv('PINECONE_ENVIRONMENT', 'us-east-1-aws')
-    index_name = os.getenv('PINECONE_INDEX', 'radiant-documents')
+# Get Pinecone credentials
+api_key = os.getenv('PINECONE_API_KEY')
+index_name = os.getenv('PINECONE_INDEX', 'radiant-documents')
+cloud = os.getenv('PINECONE_CLOUD', 'aws')
+region = os.getenv('PINECONE_REGION', 'us-east-1')
+
+print("Running detailed Pinecone test...")
+print(f"Using index: {index_name}")
+print(f"Cloud: {cloud}")
+print(f"Region: {region}")
+
+try:
+    # Initialize Pinecone
+    pc = Pinecone(api_key=api_key, cloud=cloud)
+    print("Successfully initialized Pinecone client")
     
-    if not api_key:
-        print("ERROR: PINECONE_API_KEY not set in environment variables")
-        return False
+    # List available indexes
+    print("\nListing indexes...")
+    indexes = pc.list_indexes()
+    print(f"Available indexes: {json.dumps(indexes, indent=2)}")
     
-    print(f"Testing Pinecone connection with:")
-    print(f"  API Key: {api_key[:5]}...{api_key[-5:]} (length: {len(api_key)})")
-    print(f"  Environment: {environment}")
-    print(f"  Index Name: {index_name}")
+    if index_name:
+        # Connect to the index
+        print(f"\nConnecting to index '{index_name}'...")
+        index = pc.Index(index_name)
+        print("Successfully connected to index")
+        
+        # Get index stats
+        print("\nGetting index stats...")
+        stats = index.describe_index_stats()
+        print(f"Index stats: {json.dumps(stats, indent=2)}")
+        
+        # Test vector operations if the index exists
+        print("\nTesting vector operations...")
+        test_vector = [0.1] * 1536  # OpenAI ada-002 dimension
+        test_metadata = {"test": "metadata"}
+        
+        # Upsert test
+        print("Testing upsert...")
+        upsert_response = index.upsert(
+            vectors=[{
+                "id": "test_vector",
+                "values": test_vector,
+                "metadata": test_metadata
+            }],
+            namespace="test"
+        )
+        print(f"Upsert response: {json.dumps(upsert_response, indent=2)}")
+        
+        # Query test
+        print("\nTesting query...")
+        query_response = index.query(
+            vector=test_vector,
+            top_k=1,
+            namespace="test",
+            include_metadata=True
+        )
+        print(f"Query response: {json.dumps(query_response.to_dict(), indent=2)}")
+        
+        # Cleanup
+        print("\nCleaning up test data...")
+        delete_response = index.delete(
+            filter={"test": "metadata"},
+            namespace="test"
+        )
+        print(f"Delete response: {json.dumps(delete_response, indent=2)}")
     
-    try:
-        # Initialize Pinecone
-        print("Initializing Pinecone...")
-        pinecone.init(api_key=api_key, environment=environment)
-        
-        # List indexes with detailed error handling
-        print("Listing indexes...")
-        try:
-            indexes = pinecone.list_indexes()
-            print(f"Available indexes: {indexes}")
-        except Exception as list_error:
-            print(f"Error listing indexes: {str(list_error)}")
-            print("Detailed error:")
-            traceback.print_exc()
-            return False
-        
-        # Try to create the index with detailed error handling
-        if index_name not in indexes:
-            print(f"Index '{index_name}' does not exist. Attempting to create it...")
-            try:
-                pinecone.create_index(
-                    name=index_name,
-                    dimension=1536,
-                    metric="cosine"
-                )
-                print(f"Successfully created index: {index_name}")
-            except Exception as create_error:
-                print(f"Error creating index: {str(create_error)}")
-                print("Detailed error:")
-                traceback.print_exc()
-                return False
-        
-        # Connect to the index with detailed error handling
-        print(f"Connecting to index '{index_name}'...")
-        try:
-            index = pinecone.Index(index_name)
-        except Exception as connect_error:
-            print(f"Error connecting to index: {str(connect_error)}")
-            print("Detailed error:")
-            traceback.print_exc()
-            return False
-        
-        # Get index stats with detailed error handling
-        print("Getting index stats...")
-        try:
-            stats = index.describe_index_stats()
-            print(f"Index stats: {stats}")
-        except Exception as stats_error:
-            print(f"Error getting index stats: {str(stats_error)}")
-            print("Detailed error:")
-            traceback.print_exc()
-            return False
-        
-        print("Pinecone connection test successful!")
-        return True
-    except Exception as e:
-        print(f"Error in Pinecone connection test: {str(e)}")
-        print("Detailed error:")
-        traceback.print_exc()
-        return False
+    print("\nPinecone test completed successfully!")
+except Exception as e:
+    print(f"Error during Pinecone test: {str(e)}")
+    print("Full error details:")
+    traceback.print_exc()
 
 if __name__ == "__main__":
     test_pinecone_connection_detailed() 

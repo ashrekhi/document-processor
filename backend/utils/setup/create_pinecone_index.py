@@ -1,16 +1,17 @@
 import os
-import pinecone
 from dotenv import load_dotenv
+from pinecone import Pinecone, ServerlessSpec
 import time
 
 # Load environment variables
 load_dotenv()
 
 def create_pinecone_index():
-    # Get Pinecone credentials from environment
+    # Get Pinecone credentials
     api_key = os.getenv('PINECONE_API_KEY')
-    environment = os.getenv('PINECONE_ENVIRONMENT', 'us-east-1-aws')
     index_name = os.getenv('PINECONE_INDEX', 'radiant-documents')
+    cloud = os.getenv('PINECONE_CLOUD', 'aws')
+    region = os.getenv('PINECONE_REGION', 'us-east-1')
     
     if not api_key:
         print("ERROR: PINECONE_API_KEY not set in environment variables")
@@ -18,11 +19,11 @@ def create_pinecone_index():
     
     try:
         # Initialize Pinecone
-        print(f"Initializing Pinecone with environment: {environment}")
-        pinecone.init(api_key=api_key, environment=environment)
+        print(f"Initializing Pinecone with cloud: {cloud} and region: {region}")
+        pc = Pinecone(api_key=api_key, cloud=cloud)
         
         # List existing indexes
-        indexes = pinecone.list_indexes()
+        indexes = pc.list_indexes()
         print(f"Existing indexes: {indexes}")
         
         # Check if index already exists
@@ -32,10 +33,14 @@ def create_pinecone_index():
         
         # Create the index
         print(f"Creating index '{index_name}'...")
-        pinecone.create_index(
+        pc.create_index(
             name=index_name,
-            dimension=1536,  # OpenAI embedding dimension
-            metric="cosine"
+            dimension=1536,  # OpenAI ada-002 embedding dimension
+            metric="cosine",
+            spec=ServerlessSpec(
+                cloud=cloud,
+                region=region
+            )
         )
         
         # Wait for the index to be ready
@@ -43,12 +48,12 @@ def create_pinecone_index():
         time.sleep(10)  # Give it some time to initialize
         
         # Verify the index was created
-        indexes = pinecone.list_indexes()
+        indexes = pc.list_indexes()
         if index_name in indexes:
             print(f"Index '{index_name}' created successfully!")
             
             # Connect to the index
-            index = pinecone.Index(index_name)
+            index = pc.Index(index_name)
             
             # Get index stats
             stats = index.describe_index_stats()
