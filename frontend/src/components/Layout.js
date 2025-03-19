@@ -164,10 +164,10 @@ function Layout({ children }) {
           }}
         >
           <Typography variant="subtitle2" fontWeight={600} mb={1}>
-            Need Help?
+            Need APIs?
           </Typography>
           <Typography variant="body2" mb={2}>
-            Check our documentation for tips on using document processor features.
+            Check our documentation for tips on how to use document processor APIs in your workflows.
           </Typography>
           <Button
             size="small"

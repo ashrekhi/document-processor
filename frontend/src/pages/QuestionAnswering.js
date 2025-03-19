@@ -136,9 +136,9 @@ function QuestionAnswering() {
   
   // Mock history for enterprise UI feel
   const questionHistory = [
-    "What are the key points in the financial report?",
-    "Summarize the legal contract from last month",
-    "Extract data from the annual report"
+    "What are the key points in the figma?",
+    "Summarize the patient details",
+    "Can you extract out details from the EOB document?"
   ];
 
   return (
