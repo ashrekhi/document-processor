@@ -14,21 +14,18 @@ import sys
 try:
     print("Attempting to import Pinecone...")
     # Import V2 API directly
+    import pinecone
     from pinecone import Pinecone, ServerlessSpec
-    print("Successfully imported Pinecone class (V2 API)")
+    print(f"Successfully imported Pinecone (V2 API), version: {pinecone.__version__}")
     PINECONE_IMPORT_SUCCESS = True
     
     # Print the imported Pinecone version to help with debugging
     import importlib.metadata
     try:
-        pinecone_version = importlib.metadata.version("pinecone")
-        print(f"Imported Pinecone version: {pinecone_version}")
+        pinecone_version = importlib.metadata.version("pinecone-client")
+        print(f"Imported pinecone-client version: {pinecone_version}")
     except Exception as ver_error:
-        try:
-            pinecone_version = importlib.metadata.version("pinecone-client")
-            print(f"Imported Pinecone-client version: {pinecone_version}")
-        except Exception:
-            print(f"Could not determine Pinecone version: {str(ver_error)}")
+        print(f"Could not determine Pinecone version: {str(ver_error)}")
 except ImportError as e:
     print(f"WARNING: Failed to import from pinecone package due to ImportError: {str(e)}")
     print(f"This usually means the package is not installed or the wrong version is installed")
@@ -44,6 +41,17 @@ except ImportError as e:
     except Exception as pkg_error:
         print(f"Could not list installed packages: {str(pkg_error)}")
     PINECONE_IMPORT_SUCCESS = False
+    
+    # Create a mock pinecone module with basic functionality
+    import types
+    pinecone = types.ModuleType('pinecone')
+    pinecone.__version__ = "mock-3.0.0"
+    
+    def mock_create_index(**kwargs):
+        print(f"MOCK: Would create index {kwargs.get('name')} with dimension {kwargs.get('dimension')}")
+        return None
+        
+    pinecone.create_index = mock_create_index
     
     # Define a stub Pinecone class to avoid errors
     class Pinecone:
@@ -179,20 +187,20 @@ class SimpleMockIndex:
     def query(self, vector, top_k=5, include_metadata=True, filter=None, namespace="default"):
         print(f"WARNING: Using mock query - real vector search is unavailable")
         
-        # Simple mock response
-        class MockMatch:
-            def __init__(self, id):
-                self.id = id
-                self.score = 0.85
-                self.metadata = {"text": "This is development mode only. Vector search is unavailable.", 
-                               "doc_id": "dev-mode-doc", 
-                               "filename": "dev-mode.txt"}
+        # V2 API compatible response
+        matches = []
+        for i in range(3):
+            matches.append({
+                "id": f"mock_{i}",
+                "score": 0.85,
+                "metadata": {
+                    "text": "This is development mode only. Vector search is unavailable.",
+                    "doc_id": "dev-mode-doc",
+                    "filename": "dev-mode.txt"
+                }
+            })
         
-        class MockResponse:
-            def __init__(self):
-                self.matches = [MockMatch(f"mock_{i}") for i in range(3)]
-        
-        return MockResponse()
+        return {"matches": matches}
     
     def delete(self, filter=None, namespace="default"):
         return {"deleted_count": 0}
@@ -441,7 +449,7 @@ class VectorDBService:
                     print(f"DEBUG: Using cloud={self.pinecone_cloud or 'aws'}, region={self.pinecone_region}")
                     
                     try:
-                        self.pc.create_index(
+                        pinecone.create_index(
                             name=self.index_name,
                             dimension=1536,
                             metric="cosine",
@@ -856,21 +864,21 @@ class VectorDBService:
                         namespace=namespace
                     )
                     
-                    # Format results for the new client response format and add namespace
-                    for match in results.matches:
+                    # Format results for the V2 API response format
+                    for match in results.get('matches', []):
                         all_results.append({
-                            "id": match.id,
-                            "score": match.score,
-                            "doc_id": match.metadata.get("doc_id", ""),
-                            "text": match.metadata.get("text", ""),
-                            "source": match.metadata.get("source", ""),
-                            "filename": match.metadata.get("filename", ""),
-                            "folder": match.metadata.get("folder", ""),
+                            "id": match.get('id'),
+                            "score": match.get('score', 0),
+                            "doc_id": match.get('metadata', {}).get('doc_id', ''),
+                            "text": match.get('metadata', {}).get('text', ''),
+                            "source": match.get('metadata', {}).get('source', ''),
+                            "filename": match.get('metadata', {}).get('filename', ''),
+                            "folder": match.get('metadata', {}).get('folder', ''),
                             "namespace": namespace
                         })
                     
                     namespace_time = time.time() - namespace_start_time
-                    print(f"VECTOR CROSS-NAMESPACE SEARCH: Found {len(results.matches)} matches in namespace '{namespace}' in {namespace_time:.2f} seconds")
+                    print(f"VECTOR CROSS-NAMESPACE SEARCH: Found {len(results.get('matches', []))} matches in namespace '{namespace}' in {namespace_time:.2f} seconds")
                     
                 except Exception as namespace_error:
                     error_type = type(namespace_error).__name__

@@ -12,8 +12,9 @@ try:
     print("EmbeddingService: Attempting to import Pinecone...")
     
     # Import V2 API directly
+    import pinecone
     from pinecone import Pinecone, ServerlessSpec
-    print("EmbeddingService: Successfully imported Pinecone class (V2 API)")
+    print(f"EmbeddingService: Successfully imported Pinecone (V2 API), version: {pinecone.__version__}")
     PINECONE_IMPORT_SUCCESS = True
     
 except ImportError as e:
@@ -22,6 +23,17 @@ except ImportError as e:
     print(f"EmbeddingService: Python version: {sys.version}")
     print(f"EmbeddingService: Python path: {sys.path}")
     PINECONE_IMPORT_SUCCESS = False
+    
+    # Create a mock pinecone module with basic functionality
+    import types
+    pinecone = types.ModuleType('pinecone')
+    pinecone.__version__ = "mock-3.0.0"
+    
+    def mock_create_index(**kwargs):
+        print(f"MOCK: Would create index {kwargs.get('name')} with dimension {kwargs.get('dimension')}")
+        return None
+        
+    pinecone.create_index = mock_create_index
     
     # Define stub classes for Pinecone
     class Pinecone:
@@ -37,10 +49,8 @@ except ImportError as e:
                     return {"namespaces": {}}
                     
                 def query(self, **kwargs):
-                    class MockResult:
-                        def __init__(self):
-                            self.matches = []
-                    return MockResult()
+                    return {"matches": []}
+                    
             return MockIndex()
             
     class ServerlessSpec:
@@ -124,7 +134,7 @@ class EmbeddingService:
                     self.logger.info(f"Creating new Pinecone index: {self.index_name}")
                     # Create index with the appropriate dimension for text-embedding-ada-002 (1536)
                     try:
-                        pc.create_index(
+                        pinecone.create_index(
                             name=self.index_name,
                             dimension=1536,  # dimension for text-embedding-ada-002
                             metric="cosine",
