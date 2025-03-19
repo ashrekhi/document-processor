@@ -274,6 +274,11 @@ class SimpleMockIndex:
     def describe_index_stats(self):
         return {"namespaces": {"default": {"vector_count": 0}}}
 
+# Check if debug mode is enabled
+DEBUG_PINECONE = os.getenv('DEBUG_PINECONE', '').lower() == 'true'
+if DEBUG_PINECONE:
+    print("DEBUG MODE ENABLED: Detailed Pinecone diagnostics will be shown")
+
 class VectorDBService:
     def __init__(self, index_name: str = None, namespace: str = "default"):
         """Initialize the Vector DB service, connected to the specified index and namespace"""
@@ -473,8 +478,17 @@ class VectorDBService:
         try:
             # List all indexes
             print(f"DEBUG: Listing all Pinecone indexes...")
+            print(f"DEBUG: Using API key beginning with: {self.pinecone_api_key[:5]}...")
+            print(f"DEBUG: Current environment settings:")
+            print(f"  - PINECONE_INDEX: {self.index_name}")
+            print(f"  - PINECONE_CLOUD: {self.pinecone_cloud}")
+            print(f"  - PINECONE_REGION: {self.pinecone_region}")
+            print(f"  - PINECONE_ENVIRONMENT: {self.pinecone_env}")
+            print(f"  - API Key Type: {'New format (pcsk_)' if self.is_new_api_key else 'Classic format'}")
+            print(f"  - API Version: {'V2 (Pinecone class)' if PINECONE_NEW_API else 'V1 (init function)'}")
+            
             indexes = self.pc.list_indexes()
-            print(f"DEBUG: Found indexes: {indexes}")
+            print(f"DEBUG: Raw index list response: {indexes}")
             
             # Check if the index already exists
             index_exists = False
@@ -484,35 +498,56 @@ class VectorDBService:
                 # New API format returns a dict with 'indexes' key
                 if isinstance(indexes, dict) and 'indexes' in indexes:
                     index_list = indexes['indexes']
+                    print(f"DEBUG: V2 API - Found {len(index_list)} indexes: {index_list}")
                     for idx in index_list:
-                        if isinstance(idx, dict) and 'name' in idx and idx['name'] == self.index_name:
-                            index_exists = True
-                            print(f"DEBUG: Found existing index '{self.index_name}' in indexes list")
-                            break
+                        if isinstance(idx, dict) and 'name' in idx:
+                            print(f"DEBUG: Comparing index '{idx['name']}' with target '{self.index_name}'")
+                            if idx['name'] == self.index_name:
+                                index_exists = True
+                                print(f"DEBUG: MATCH FOUND! Existing index '{self.index_name}' in indexes list")
+                                break
+                            elif idx['name'].lower() == self.index_name.lower():
+                                print(f"DEBUG: Case-insensitive match found - '{idx['name']}' vs '{self.index_name}'")
             else:
                 # Old API returns a list of string names
                 if isinstance(indexes, list):
-                    if self.index_name in indexes:
-                        index_exists = True
-                        print(f"DEBUG: Found existing index '{self.index_name}' in indexes list")
+                    print(f"DEBUG: V1 API - Found {len(indexes)} indexes: {indexes}")
+                    for idx_name in indexes:
+                        print(f"DEBUG: Comparing index '{idx_name}' with target '{self.index_name}'")
+                        if idx_name == self.index_name:
+                            index_exists = True
+                            print(f"DEBUG: MATCH FOUND! Existing index '{self.index_name}' in indexes list")
+                            break
+                        elif idx_name.lower() == self.index_name.lower():
+                            print(f"DEBUG: Case-insensitive match found - '{idx_name}' vs '{self.index_name}'")
                 # For adapter case, also check dict format
                 elif isinstance(indexes, dict) and 'indexes' in indexes:
                     index_list = indexes['indexes']
+                    print(f"DEBUG: V1 Adapter - Found {len(index_list)} indexes: {index_list}")
                     for idx in index_list:
-                        if isinstance(idx, dict) and idx.get('name') == self.index_name:
-                            index_exists = True
-                            print(f"DEBUG: Found existing index '{self.index_name}' in adapter indexes list")
-                            break
+                        if isinstance(idx, dict) and 'name' in idx:
+                            print(f"DEBUG: Comparing index '{idx['name']}' with target '{self.index_name}'")
+                            if idx['name'] == self.index_name:
+                                index_exists = True
+                                print(f"DEBUG: MATCH FOUND! Existing index '{self.index_name}' in adapter indexes list")
+                                break
+                            elif idx['name'].lower() == self.index_name.lower():
+                                print(f"DEBUG: Case-insensitive match found - '{idx['name']}' vs '{self.index_name}'")
             
             # Fix the index existence check - the log shows we're incorrectly reporting False even when index exists
             if not index_exists:
                 # Double check by looking at the raw response for the index name
                 raw_response = str(indexes)
+                print(f"DEBUG: Raw index list string: {raw_response[:200]}...")  # Print first 200 chars to avoid log spam
                 if f"'name': '{self.index_name}'" in raw_response or f'"name": "{self.index_name}"' in raw_response:
                     index_exists = True
-                    print(f"DEBUG: Found existing index '{self.index_name}' in raw response")
+                    print(f"DEBUG: MATCH FOUND! Found existing index '{self.index_name}' in raw response")
+                    
+                # Also try case-insensitive match as a fallback
+                elif f"'name': '{self.index_name.lower()}'" in raw_response.lower() or f'"name": "{self.index_name.lower()}"' in raw_response.lower():
+                    print(f"DEBUG: Case-insensitive match found in raw response")
             
-            print(f"DEBUG: Index '{self.index_name}' exists: {index_exists}")
+            print(f"DEBUG: Final result - Index '{self.index_name}' exists: {index_exists}")
             
             if not index_exists:
                 print(f"Index '{self.index_name}' not found. Creating...")

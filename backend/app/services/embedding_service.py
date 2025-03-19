@@ -169,47 +169,109 @@ class EmbeddingService:
                 # List indexes based on API version
                 if PINECONE_NEW_API:
                     # New API format
-                    available_indexes = [idx['name'] for idx in pc.list_indexes().get('indexes', [])]
+                    try:
+                        indexes_response = pc.list_indexes()
+                        self.logger.info(f"Raw Pinecone index list response: {indexes_response}")
+                        available_indexes = [idx['name'] for idx in indexes_response.get('indexes', [])]
+                    except Exception as list_err:
+                        self.logger.error(f"Error listing indexes with V2 API: {str(list_err)}")
+                        # Try again with a short delay
+                        time.sleep(1)
+                        try:
+                            indexes_response = pc.list_indexes()
+                            self.logger.info(f"Retry - Raw Pinecone index list response: {indexes_response}")
+                            available_indexes = [idx['name'] for idx in indexes_response.get('indexes', [])]
+                        except Exception as retry_err:
+                            self.logger.error(f"Retry failed - Error listing indexes: {str(retry_err)}")
+                            available_indexes = []
                 else:
                     # Old API might return list or dict
-                    indexes_resp = pc.list_indexes()
-                    if isinstance(indexes_resp, dict) and 'indexes' in indexes_resp:
-                        available_indexes = [idx['name'] for idx in indexes_resp.get('indexes', [])]
-                    elif isinstance(indexes_resp, list):
-                        available_indexes = indexes_resp
-                    else:
-                        available_indexes = []
+                    try:
+                        indexes_resp = pc.list_indexes()
+                        self.logger.info(f"Raw Pinecone index list response (V1): {indexes_resp}")
+                        if isinstance(indexes_resp, dict) and 'indexes' in indexes_resp:
+                            available_indexes = [idx['name'] for idx in indexes_resp.get('indexes', [])]
+                        elif isinstance(indexes_resp, list):
+                            available_indexes = indexes_resp
+                        else:
+                            available_indexes = []
+                    except Exception as list_err:
+                        self.logger.error(f"Error listing indexes with V1 API: {str(list_err)}")
+                        # Try again with a short delay
+                        time.sleep(1)
+                        try:
+                            indexes_resp = pc.list_indexes()
+                            self.logger.info(f"Retry - Raw Pinecone index list response (V1): {indexes_resp}")
+                            if isinstance(indexes_resp, dict) and 'indexes' in indexes_resp:
+                                available_indexes = [idx['name'] for idx in indexes_resp.get('indexes', [])]
+                            elif isinstance(indexes_resp, list):
+                                available_indexes = indexes_resp
+                            else:
+                                available_indexes = []
+                        except Exception as retry_err:
+                            self.logger.error(f"Retry failed - Error listing indexes: {str(retry_err)}")
+                            available_indexes = []
                         
                 self.logger.info(f"Available Pinecone indexes: {available_indexes}")
+                self.logger.info(f"Checking for index name: '{self.index_name}'")
+                self.logger.info(f"Case-sensitive match found: {self.index_name in available_indexes}")
+                
+                # Check also for case-insensitive matches which might be causing confusion
+                for idx in available_indexes:
+                    if idx.lower() == self.index_name.lower() and idx != self.index_name:
+                        self.logger.warning(f"Found case-insensitive match: '{idx}' vs target '{self.index_name}'")
+                        self.logger.warning(f"This might be causing confusion - consider using the exact case")
                 
                 if self.index_name not in available_indexes:
                     self.logger.info(f"Creating new Pinecone index: {self.index_name}")
                     # Create index with the appropriate dimension for text-embedding-ada-002 (1536)
-                    if PINECONE_NEW_API:
-                        pc.create_index(
-                            name=self.index_name,
-                            dimension=1536,  # dimension for text-embedding-ada-002
-                            metric="cosine",
-                            spec=ServerlessSpec(
-                                cloud=self.cloud,
-                                region=self.region
-                            )
-                        )
-                    else:
-                        # Old API doesn't use spec
-                        if self.environment:
+                    try:
+                        if PINECONE_NEW_API:
                             pc.create_index(
                                 name=self.index_name,
-                                dimension=1536,
+                                dimension=1536,  # dimension for text-embedding-ada-002
                                 metric="cosine",
-                                environment=self.environment
+                                spec=ServerlessSpec(
+                                    cloud=self.cloud,
+                                    region=self.region
+                                )
                             )
                         else:
-                            pc.create_index(
-                                name=self.index_name,
-                                dimension=1536,
-                                metric="cosine"
-                            )
+                            # Old API doesn't use spec
+                            if self.environment:
+                                pc.create_index(
+                                    name=self.index_name,
+                                    dimension=1536,
+                                    metric="cosine",
+                                    environment=self.environment
+                                )
+                            else:
+                                pc.create_index(
+                                    name=self.index_name,
+                                    dimension=1536,
+                                    metric="cosine"
+                                )
+                        self.logger.info(f"Successfully created index: {self.index_name}")
+                    except Exception as create_err:
+                        self.logger.error(f"Error creating index: {str(create_err)}")
+                        
+                        # Check if it's a quota error
+                        err_str = str(create_err).lower()
+                        if "quota" in err_str or "limit" in err_str or "max pods" in err_str:
+                            self.logger.error("Detected quota limit error from Pinecone")
+                            self.logger.error("This might be due to account limitations - if you have existing indexes, try using one of those instead")
+                            
+                            # Try to use an existing index if any are available
+                            if available_indexes:
+                                alternative_index = available_indexes[0]
+                                self.logger.warning(f"Will try to use existing index '{alternative_index}' instead")
+                                self.index_name = alternative_index
+                            else:
+                                self.logger.error("No existing indexes found to use as an alternative")
+                                raise
+                        else:
+                            # Re-raise for other errors
+                            raise
                 
                 # Connect to the index based on API version
                 if PINECONE_NEW_API:
