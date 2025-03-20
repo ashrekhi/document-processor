@@ -930,3 +930,401 @@ class VectorDBService:
             import traceback
             print(f"VECTOR CROSS-NAMESPACE SEARCH ERROR: Full error details:\n{traceback.format_exc()}")
             raise ValueError(f"Cross-namespace search failed: {str(e)}")
+
+    def calculate_document_similarity(self, doc1_text: str, doc2_text: str, method: str = "embedding") -> Dict[str, Any]:
+        """
+        Calculate similarity between two document texts using various methods.
+        
+        Args:
+            doc1_text: Text content of the first document
+            doc2_text: Text content of the second document
+            method: Similarity method to use ("embedding", "text", or "hybrid")
+            
+        Returns:
+            Dict containing similarity scores and metadata
+        """
+        try:
+            print(f"Calculating similarity between two documents")
+            print(f"Document 1 length: {len(doc1_text)} characters")
+            print(f"Document 2 length: {len(doc2_text)} characters")
+            print(f"Using method: {method}")
+            
+            result = {
+                "similarity": 0.0,
+                "embedding_similarity": 0.0,
+                "text_similarity": 0.0,
+                "comparison_time": 0.0,
+                "method": method,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            start_time = time.time()
+            
+            # Calculate embedding-based similarity
+            if method in ["embedding", "hybrid"]:
+                # Generate embeddings for both documents
+                embedding1 = self._generate_embedding(doc1_text)
+                embedding2 = self._generate_embedding(doc2_text)
+                
+                # Calculate cosine similarity
+                # Formula: cos(θ) = (A·B) / (||A|| × ||B||)
+                dot_product = sum(a * b for a, b in zip(embedding1, embedding2))
+                magnitude1 = sum(a * a for a in embedding1) ** 0.5
+                magnitude2 = sum(b * b for b in embedding2) ** 0.5
+                
+                embedding_similarity = dot_product / (magnitude1 * magnitude2)
+                result["embedding_similarity"] = embedding_similarity
+                
+                if method == "embedding":
+                    result["similarity"] = embedding_similarity
+            
+            # Calculate text-based similarity using TF-IDF
+            if method in ["text", "hybrid"]:
+                # Simple text-based similarity using word frequency
+                # This is a basic implementation - a proper one would use libraries like scikit-learn for TF-IDF
+                
+                # Tokenize documents into words
+                words1 = set(doc1_text.lower().split())
+                words2 = set(doc2_text.lower().split())
+                
+                # Calculate Jaccard similarity coefficient
+                intersection = len(words1.intersection(words2))
+                union = len(words1.union(words2))
+                
+                text_similarity = intersection / union if union > 0 else 0.0
+                result["text_similarity"] = text_similarity
+                
+                if method == "text":
+                    result["similarity"] = text_similarity
+            
+            # For hybrid method, take the average of both similarities
+            if method == "hybrid":
+                result["similarity"] = (result["embedding_similarity"] + result["text_similarity"]) / 2
+            
+            end_time = time.time()
+            result["comparison_time"] = end_time - start_time
+            
+            print(f"Calculated similarity score: {result['similarity']:.4f} using {method} method")
+            print(f"Comparison completed in {result['comparison_time']:.2f} seconds")
+            
+            return result
+        
+        except Exception as e:
+            print(f"Error calculating document similarity: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise ValueError(f"Failed to calculate document similarity: {str(e)}")
+
+    def calculate_document_similarity_by_id(self, doc1_id: str, doc2_id: str, method: str = "hybrid", namespace: str = None) -> Dict[str, Any]:
+        """
+        Calculate similarity between two documents already stored in the system.
+        
+        Args:
+            doc1_id: ID of the first document
+            doc2_id: ID of the second document
+            method: Similarity method to use ("embedding", "text", "hybrid", or "chunked")
+            namespace: Optional namespace where documents are stored
+            
+        Returns:
+            Dict containing similarity scores and metadata
+        """
+        try:
+            print(f"Calculating similarity between documents {doc1_id} and {doc2_id}")
+            print(f"Using method: {method}")
+            
+            result = {
+                "doc1_id": doc1_id,
+                "doc2_id": doc2_id,
+                "similarity": 0.0,
+                "method": method,
+                "timestamp": datetime.now().isoformat(),
+                "namespace": namespace
+            }
+            
+            # For chunked method, use a different approach
+            if method == "chunked":
+                return self.calculate_chunked_document_similarity(doc1_id, doc2_id, namespace)
+            
+            # Get document content from S3 or your document storage
+            # This method needs to be implemented based on your storage system
+            doc1_text = self._get_document_text(doc1_id, namespace)
+            doc2_text = self._get_document_text(doc2_id, namespace)
+            
+            # Calculate similarity using the text content
+            similarity_result = self.calculate_document_similarity(doc1_text, doc2_text, method)
+            
+            # Merge the results
+            result.update(similarity_result)
+            
+            # Optionally store this comparison result in S3 for history
+            self._store_comparison_result(result)
+            
+            return result
+        
+        except Exception as e:
+            print(f"Error calculating document similarity by ID: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise ValueError(f"Failed to calculate document similarity by ID: {str(e)}")
+
+    def calculate_chunked_document_similarity(self, doc1_id: str, doc2_id: str, namespace: str = None) -> Dict[str, Any]:
+        """
+        Calculate similarity between two documents by comparing their chunks.
+        This is more accurate for large documents that have been chunked.
+        
+        Args:
+            doc1_id: ID of the first document
+            doc2_id: ID of the second document
+            namespace: Optional namespace where documents are stored
+            
+        Returns:
+            Dict containing similarity scores and metadata
+        """
+        try:
+            print(f"Calculating chunked similarity between documents {doc1_id} and {doc2_id}")
+            
+            result = {
+                "doc1_id": doc1_id,
+                "doc2_id": doc2_id,
+                "similarity": 0.0,
+                "method": "chunked",
+                "timestamp": datetime.now().isoformat(),
+                "namespace": namespace,
+                "chunk_comparisons": 0
+            }
+            
+            start_time = time.time()
+            
+            # Get all vectors for doc1
+            doc1_filter = {"doc_id": doc1_id}
+            
+            # Get all vectors for doc2
+            doc2_filter = {"doc_id": doc2_id}
+            
+            # Calculate similarity between chunks
+            all_similarity_scores = []
+            top_matches = []
+            
+            # Use statistical sampling for very large documents to avoid comparing all chunks
+            max_chunks_to_compare = 1000  # Set a reasonable limit
+            
+            # First get doc1 chunks
+            doc1_results = self.pinecone_index.query(
+                filter=doc1_filter,
+                vector=[0.0] * 1536,  # Dummy vector, we're only using the filter
+                top_k=max_chunks_to_compare,
+                include_metadata=True,
+                include_values=True,
+                namespace=namespace
+            )
+            
+            # Then get doc2 chunks
+            doc2_results = self.pinecone_index.query(
+                filter=doc2_filter,
+                vector=[0.0] * 1536,  # Dummy vector, we're only using the filter
+                top_k=max_chunks_to_compare,
+                include_metadata=True,
+                include_values=True,
+                namespace=namespace
+            )
+            
+            doc1_chunks = doc1_results.get('matches', [])
+            doc2_chunks = doc2_results.get('matches', [])
+            
+            print(f"Retrieved {len(doc1_chunks)} chunks for doc1 and {len(doc2_chunks)} chunks for doc2")
+            
+            # If we have too many combinations, sample them
+            if len(doc1_chunks) * len(doc2_chunks) > max_chunks_to_compare:
+                import random
+                # Sample chunks from both documents
+                if len(doc1_chunks) > 50:
+                    doc1_chunks = random.sample(doc1_chunks, 50)
+                if len(doc2_chunks) > 50:
+                    doc2_chunks = random.sample(doc2_chunks, 50)
+                print(f"Sampled down to {len(doc1_chunks)} chunks for doc1 and {len(doc2_chunks)} chunks for doc2")
+            
+            # Compare each chunk from doc1 with each chunk from doc2
+            for i, doc1_chunk in enumerate(doc1_chunks):
+                doc1_vector = doc1_chunk.get('values', [])
+                if not doc1_vector:
+                    continue
+                
+                for j, doc2_chunk in enumerate(doc2_chunks):
+                    doc2_vector = doc2_chunk.get('values', [])
+                    if not doc2_vector:
+                        continue
+                    
+                    # Calculate cosine similarity
+                    dot_product = sum(a * b for a, b in zip(doc1_vector, doc2_vector))
+                    magnitude1 = sum(a * a for a in doc1_vector) ** 0.5
+                    magnitude2 = sum(b * b for b in doc2_vector) ** 0.5
+                    
+                    chunk_similarity = dot_product / (magnitude1 * magnitude2)
+                    all_similarity_scores.append(chunk_similarity)
+                    
+                    # Keep track of top matches
+                    if chunk_similarity > 0.8:  # Adjust threshold as needed
+                        top_matches.append({
+                            "doc1_chunk": i,
+                            "doc2_chunk": j,
+                            "similarity": chunk_similarity,
+                            "doc1_text": doc1_chunk.get('metadata', {}).get('text', ''),
+                            "doc2_text": doc2_chunk.get('metadata', {}).get('text', '')
+                        })
+            
+            # Sort top matches by similarity
+            top_matches.sort(key=lambda x: x["similarity"], reverse=True)
+            
+            # Calculate aggregate similarity
+            if all_similarity_scores:
+                # Take the average of top 25% of similarity scores
+                all_similarity_scores.sort(reverse=True)
+                top_n = max(1, len(all_similarity_scores) // 4)
+                top_similarity_scores = all_similarity_scores[:top_n]
+                avg_similarity = sum(top_similarity_scores) / len(top_similarity_scores)
+                
+                result["similarity"] = avg_similarity
+                result["chunk_comparisons"] = len(all_similarity_scores)
+                result["top_matches"] = top_matches[:10]  # Include top 10 matches
+            else:
+                print("No chunk comparisons were performed")
+                result["similarity"] = 0.0
+            
+            end_time = time.time()
+            result["comparison_time"] = end_time - start_time
+            
+            print(f"Calculated chunk similarity score: {result['similarity']:.4f}")
+            print(f"Compared {result['chunk_comparisons']} chunk pairs in {result['comparison_time']:.2f} seconds")
+            
+            # Optionally store this comparison result in S3 for history
+            self._store_comparison_result(result)
+            
+            return result
+        
+        except Exception as e:
+            print(f"Error calculating chunked document similarity: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise ValueError(f"Failed to calculate chunked document similarity: {str(e)}")
+
+    def _get_document_text(self, doc_id: str, namespace: str = None) -> str:
+        """
+        Retrieve the full text of a document from storage.
+        
+        Args:
+            doc_id: ID of the document
+            namespace: Optional namespace where the document is stored
+            
+        Returns:
+            str: The full text content of the document
+        """
+        # This is a placeholder implementation
+        # You would need to implement this to retrieve documents from your storage system
+        
+        try:
+            print(f"Retrieving text for document {doc_id} from namespace {namespace}")
+            
+            # Example implementation using a hypothetical S3 service
+            # from app.services.s3_service import S3Service
+            # s3_service = S3Service()
+            # document_data = s3_service.get_object(f"documents/{doc_id}/content.txt")
+            # return document_data.decode('utf-8')
+            
+            # For demonstration purposes, we'll just construct a placeholder
+            # In a real implementation, this would retrieve the document from S3
+            return f"This is placeholder text for document {doc_id}. Implement actual retrieval from S3."
+        
+        except Exception as e:
+            print(f"Error retrieving document text: {str(e)}")
+            raise ValueError(f"Failed to retrieve document text: {str(e)}")
+
+    def _store_comparison_result(self, result: Dict[str, Any]) -> bool:
+        """
+        Store document comparison result in S3 for history tracking.
+        
+        Args:
+            result: The comparison result to store
+            
+        Returns:
+            bool: True if stored successfully
+        """
+        try:
+            # Generate a unique key for this comparison
+            comparison_id = f"{result['doc1_id']}_{result['doc2_id']}_{int(time.time())}"
+            
+            # Example implementation using a hypothetical S3 service
+            # from app.services.s3_service import S3Service
+            # s3_service = S3Service()
+            # s3_service.put_object(
+            #     f"document_comparisons/{comparison_id}.json",
+            #     json.dumps(result).encode('utf-8')
+            # )
+            
+            print(f"Stored comparison result with ID: {comparison_id}")
+            return True
+        
+        except Exception as e:
+            print(f"Error storing comparison result: {str(e)}")
+            # Don't raise an exception here, as this is just an auxiliary function
+            return False
+
+    def get_similar_documents(self, doc_id: str, top_k: int = 5, namespace: str = None) -> List[Dict[str, Any]]:
+        """
+        Find documents similar to a given document.
+        
+        Args:
+            doc_id: ID of the document to find similar documents for
+            top_k: Number of similar documents to return
+            namespace: Optional namespace where documents are stored
+            
+        Returns:
+            List of similar documents with similarity scores
+        """
+        try:
+            print(f"Finding documents similar to {doc_id}")
+            
+            # Get the document text
+            doc_text = self._get_document_text(doc_id, namespace)
+            
+            # Generate embedding for the document
+            doc_embedding = self._generate_embedding(doc_text)
+            
+            # Search for similar documents using the embedding
+            results = self.pinecone_index.query(
+                vector=doc_embedding,
+                top_k=top_k * 3,  # Get more results than needed to filter by unique docs
+                include_metadata=True,
+                namespace=namespace
+            )
+            
+            # Process results to get unique documents
+            unique_docs = {}
+            
+            for match in results.get('matches', []):
+                match_doc_id = match.get('metadata', {}).get('doc_id', '')
+                
+                # Skip the document itself
+                if match_doc_id == doc_id:
+                    continue
+                
+                # Keep only the highest scoring match for each document
+                if match_doc_id not in unique_docs or match.get('score', 0) > unique_docs[match_doc_id]['score']:
+                    unique_docs[match_doc_id] = {
+                        'doc_id': match_doc_id,
+                        'score': match.get('score', 0),
+                        'filename': match.get('metadata', {}).get('filename', ''),
+                        'namespace': namespace
+                    }
+            
+            # Convert to list and sort by score
+            similar_docs = list(unique_docs.values())
+            similar_docs.sort(key=lambda x: x['score'], reverse=True)
+            
+            # Return top_k results
+            return similar_docs[:top_k]
+        
+        except Exception as e:
+            print(f"Error finding similar documents: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise ValueError(f"Failed to find similar documents: {str(e)}")

@@ -109,4 +109,79 @@ async def get_documents_by_namespace(
         return {"documents": documents}
     except Exception as e:
         print(f"Error getting documents by namespace: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/documents/similarity")
+async def compare_documents(
+    request_data: dict,
+    document_service: DocumentService = Depends(get_document_service)
+):
+    """Compare two documents for similarity"""
+    try:
+        doc1_id = request_data.get("doc1_id")
+        doc2_id = request_data.get("doc2_id")
+        method = request_data.get("method", "hybrid")
+        namespace = request_data.get("namespace")
+        
+        if not doc1_id or not doc2_id:
+            raise HTTPException(status_code=400, detail="Both doc1_id and doc2_id are required")
+        
+        # Validate the method
+        valid_methods = ["embedding", "text", "hybrid", "chunked"]
+        if method not in valid_methods:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid method. Must be one of: {', '.join(valid_methods)}"
+            )
+        
+        print(f"SIMILARITY: Comparing documents {doc1_id} and {doc2_id} using method {method}")
+        
+        # Get the similarity result
+        result = document_service.vector_db_service.calculate_document_similarity_by_id(
+            doc1_id, doc2_id, method, namespace
+        )
+        
+        return {
+            "similarity": result.get("similarity", 0.0),
+            "method": result.get("method", method),
+            "comparison_time": result.get("comparison_time", 0.0),
+            "doc1_id": doc1_id,
+            "doc2_id": doc2_id,
+            "namespace": namespace,
+            "details": result
+        }
+    except Exception as e:
+        print(f"Error comparing documents: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/documents/{doc_id}/similar")
+async def get_similar_documents(
+    doc_id: str,
+    namespace: str = None,
+    top_k: int = 5,
+    document_service: DocumentService = Depends(get_document_service)
+):
+    """Find documents similar to a given document"""
+    try:
+        # Check if document exists
+        status = document_service.get_document_status(doc_id)
+        if not status:
+            raise HTTPException(status_code=404, detail=f"Document {doc_id} not found")
+        
+        # Get similar documents
+        similar_docs = document_service.vector_db_service.get_similar_documents(
+            doc_id, top_k, namespace
+        )
+        
+        return {
+            "doc_id": doc_id,
+            "namespace": namespace,
+            "similar_documents": similar_docs
+        }
+    except Exception as e:
+        print(f"Error finding similar documents: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e)) 

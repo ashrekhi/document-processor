@@ -3,18 +3,51 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 import uuid
 import os
+import sys
 from dotenv import load_dotenv
-from app.routers import documents, folders
-from app.services.s3_service import S3Service
 import pathlib
 from fastapi.responses import JSONResponse
 import time
 import re
 
+# Add module path for imports to work in different contexts
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(os.path.dirname(current_dir))
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
+
+# Try to import modules with different import styles
+try:
+    from backend.app.routers import documents, folders, sessions
+except ImportError:
+    try:
+        from app.routers import documents, folders, sessions
+    except ImportError:
+        print("Import error with sessions module")
+        # Use a fallback import strategy if the above fails
+        import importlib
+        documents = importlib.import_module("backend.app.routers.documents")
+        folders = importlib.import_module("backend.app.routers.folders")
+        try:
+            sessions = importlib.import_module("backend.app.routers.sessions")
+        except ImportError:
+            try:
+                sessions = importlib.import_module("app.routers.sessions")
+            except ImportError:
+                print("Warning: Could not import sessions module, some features may not be available")
+                sessions = None
+
 # Import services after FastAPI initialization
-from app.services.document_service import DocumentService
-from app.services.rag_service import RAGService
-from app.models.models import DocumentResponse, QuestionRequest, QuestionResponse, FolderInfo
+try:
+    from backend.app.services.document_service import DocumentService
+    from backend.app.services.rag_service import RAGService
+    from backend.app.services.s3_service import S3Service
+    from backend.app.models.models import DocumentResponse, QuestionRequest, QuestionResponse, FolderInfo
+except ImportError:
+    from app.services.document_service import DocumentService
+    from app.services.rag_service import RAGService
+    from app.services.s3_service import S3Service
+    from app.models.models import DocumentResponse, QuestionRequest, QuestionResponse, FolderInfo
 
 # Load environment variables - for local development and production
 load_dotenv()
@@ -47,8 +80,13 @@ document_service = DocumentService(s3_service)
 rag_service = RAGService()
 
 # Include routers
-app.include_router(documents.router, prefix="/documents", tags=["documents"])
-app.include_router(folders.router, prefix="/folders", tags=["folders"])
+app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
+app.include_router(folders.router, prefix="/api/folders", tags=["folders"])
+if sessions:
+    print("Including sessions router")
+    app.include_router(sessions.router, prefix="/api/sessions", tags=["sessions"])
+else:
+    print("Sessions router not available, skipping")
 
 @app.get("/")
 def read_root():
