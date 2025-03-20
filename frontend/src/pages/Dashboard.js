@@ -23,9 +23,11 @@ import {
   MoreVert as MoreIcon,
   Folder as FolderIcon,
   TrendingUp as TrendingUpIcon,
-  SwapVert as SwapVertIcon
+  SwapVert as SwapVertIcon,
+  Compare as CompareIcon,
+  GroupWork as SessionIcon
 } from '@mui/icons-material';
-import { listDocuments } from '../services/api';
+import { listDocuments, listSessions } from '../services/api';
 
 // Statistic box component
 const StatCard = ({ icon, title, value, color, change }) => {
@@ -65,6 +67,70 @@ const StatCard = ({ icon, title, value, color, change }) => {
   );
 };
 
+// Feature card component
+const FeatureCard = ({ title, description, icon, color, buttonText, buttonLink }) => {
+  return (
+    <Card
+      sx={{
+        height: '100%',
+        bgcolor: `${color}.light`,
+        color: `${color}.contrastText`,
+        borderRadius: 3,
+        boxShadow: '0 8px 16px rgba(0,0,0,0.1)',
+        transition: 'transform 0.2s, box-shadow 0.2s',
+        '&:hover': {
+          transform: 'translateY(-4px)',
+          boxShadow: '0 12px 20px rgba(0,0,0,0.15)',
+        }
+      }}
+    >
+      <CardContent sx={{ p: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+          <Avatar
+            sx={{
+              bgcolor: color + '.main',
+              color: 'white',
+              width: 56,
+              height: 56,
+              mr: 2,
+              boxShadow: '0 4px 8px rgba(0,0,0,0.15)'
+            }}
+          >
+            {icon}
+          </Avatar>
+          <Typography variant="h5" fontWeight="bold">
+            {title}
+          </Typography>
+        </Box>
+        <Typography variant="body1" sx={{ mb: 3, opacity: 0.9, minHeight: 80 }}>
+          {description}
+        </Typography>
+        <Button
+          variant="contained"
+          component={RouterLink}
+          to={buttonLink}
+          size="large"
+          startIcon={icon}
+          sx={{ 
+            bgcolor: color + '.main', 
+            color: 'white',
+            fontWeight: 'bold',
+            '&:hover': { 
+              bgcolor: color + '.dark',
+              transform: 'scale(1.02)'
+            },
+            px: 3,
+            py: 1,
+            borderRadius: 2
+          }}
+        >
+          {buttonText}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+};
+
 // Activity card component
 const ActivityCard = ({ title, subtitle, icon, color }) => {
   return (
@@ -94,25 +160,30 @@ const ActivityCard = ({ title, subtitle, icon, color }) => {
 
 function Dashboard() {
   const [documentCount, setDocumentCount] = useState(0);
+  const [sessionCount, setSessionCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const fetchDocuments = async () => {
+    const fetchData = async () => {
       try {
         setIsLoading(true);
-        const documents = await listDocuments();
+        const [documents, sessions] = await Promise.all([
+          listDocuments(),
+          listSessions()
+        ]);
         setDocumentCount(documents.length);
+        setSessionCount(sessions.length);
       } catch (error) {
-        console.error('Error fetching documents:', error);
+        console.error('Error fetching data:', error);
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchDocuments();
+    fetchData();
   }, []);
 
-  // Simulated data for enterprise UI
+  // Simulated data for UI
   const documentTypes = [
     { type: 'PDF', count: Math.floor(documentCount * 0.6) || 0 },
     { type: 'TXT', count: Math.floor(documentCount * 0.3) || 0 },
@@ -121,18 +192,18 @@ function Dashboard() {
   
   const recentActivities = [
     { title: 'Document uploaded', subtitle: '3 minutes ago', icon: <UploadIcon />, color: 'primary' },
-    { title: 'Question answered', subtitle: '10 minutes ago', icon: <QuestionIcon />, color: 'secondary' },
-    { title: 'Folder created', subtitle: '1 hour ago', icon: <FolderIcon />, color: 'success' },
+    { title: 'Question answered', subtitle: '10 minutes ago', icon: <QuestionIcon />, color: 'success' },
+    { title: 'Similarity checked', subtitle: '1 hour ago', icon: <CompareIcon />, color: 'secondary' },
   ];
 
   return (
     <Box>
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" fontWeight="bold" gutterBottom>
-          Welcome to Document Processor
+          Document Processor
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          Manage your documents, organize with folders, and generate answers using RAG technology.
+          Process your documents with powerful AI capabilities for RAG Q&A and similarity analysis.
         </Typography>
       </Box>
       
@@ -145,46 +216,67 @@ function Dashboard() {
             title="Total Documents" 
             value={documentCount} 
             color="primary"
-            change="12% increase" 
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
           <StatCard 
             icon={<FolderIcon />} 
-            title="Total Folders" 
-            value="5" 
-            color="secondary" 
+            title="Document Folders" 
+            value={(documentCount / 3).toFixed(0)} 
+            color="success" 
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <StatCard 
+            icon={<SessionIcon />} 
+            title="Similarity Sessions" 
+            value={sessionCount} 
+            color="secondary"
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
           <StatCard 
             icon={<QuestionIcon />} 
-            title="Questions Asked" 
+            title="Questions Answered" 
             value="24" 
-            color="success"
-            change="5% increase" 
+            color="warning" 
           />
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <StatCard 
-            icon={<SwapVertIcon />} 
-            title="Processing Rate" 
-            value="98%" 
-            color="warning" 
+      </Grid>
+      
+      {/* Main Features Section */}
+      <Typography variant="h5" fontWeight="bold" sx={{ mb: 3 }}>
+        Main Features
+      </Typography>
+      
+      <Grid container spacing={4} sx={{ mb: 5 }}>
+        <Grid item xs={12} md={6}>
+          <FeatureCard 
+            title="Document RAG Q&A" 
+            description="Upload documents, organize them into folders, and ask questions to get AI-powered answers using Retrieval Augmented Generation (RAG) technology."
+            icon={<QuestionIcon />}
+            color="success"
+            buttonText="Use RAG Q&A"
+            buttonLink="/documents"
+          />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <FeatureCard 
+            title="Document Similarity" 
+            description="Check document similarity to automatically organize uploads into buckets based on content similarity. Perfect for categorizing and managing similar documents."
+            icon={<CompareIcon />}
+            color="secondary"
+            buttonText="Use Similarity"
+            buttonLink="/sessions"
           />
         </Grid>
       </Grid>
       
       <Grid container spacing={3}>
         <Grid item xs={12} md={8}>
-          <Card sx={{ height: '100%' }}>
+          <Card sx={{ height: '100%', borderRadius: 2, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
             <CardHeader 
               title="Quick Actions" 
-              action={
-                <IconButton>
-                  <MoreIcon />
-                </IconButton>
-              }
             />
             <Divider />
             <CardContent>
@@ -200,6 +292,7 @@ function Dashboard() {
                       color: 'primary.contrastText',
                       position: 'relative',
                       overflow: 'hidden',
+                      borderRadius: 2,
                     }}
                   >
                     <Box sx={{ position: 'absolute', right: -20, top: -20, opacity: 0.2 }}>
@@ -235,49 +328,11 @@ function Dashboard() {
                       display: 'flex',
                       flexDirection: 'column',
                       p: 2,
-                      bgcolor: 'secondary.light',
-                      color: 'secondary.contrastText',
-                      position: 'relative',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <Box sx={{ position: 'absolute', right: -20, top: -20, opacity: 0.2 }}>
-                      <DocumentIcon sx={{ fontSize: 100 }} />
-                    </Box>
-                    <Box sx={{ position: 'relative', zIndex: 1 }}>
-                      <Typography variant="h6" fontWeight="bold" gutterBottom>
-                        View Documents
-                      </Typography>
-                      <Typography variant="body2" sx={{ mb: 2, opacity: 0.9 }}>
-                        Browse your documents
-                      </Typography>
-                      <Button
-                        variant="contained"
-                        component={RouterLink}
-                        to="/documents"
-                        sx={{ 
-                          bgcolor: 'white', 
-                          color: 'secondary.main',
-                          '&:hover': { bgcolor: 'rgba(255,255,255,0.9)' } 
-                        }}
-                      >
-                        View All
-                      </Button>
-                    </Box>
-                  </Card>
-                </Grid>
-                
-                <Grid item xs={12} sm={4}>
-                  <Card
-                    sx={{
-                      height: '100%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      p: 2,
                       bgcolor: 'success.light',
                       color: 'success.contrastText',
                       position: 'relative',
                       overflow: 'hidden',
+                      borderRadius: 2,
                     }}
                   >
                     <Box sx={{ position: 'absolute', right: -20, top: -20, opacity: 0.2 }}>
@@ -305,20 +360,55 @@ function Dashboard() {
                     </Box>
                   </Card>
                 </Grid>
+                
+                <Grid item xs={12} sm={4}>
+                  <Card
+                    sx={{
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      p: 2,
+                      bgcolor: 'secondary.light',
+                      color: 'secondary.contrastText',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      borderRadius: 2,
+                    }}
+                  >
+                    <Box sx={{ position: 'absolute', right: -20, top: -20, opacity: 0.2 }}>
+                      <CompareIcon sx={{ fontSize: 100 }} />
+                    </Box>
+                    <Box sx={{ position: 'relative', zIndex: 1 }}>
+                      <Typography variant="h6" fontWeight="bold" gutterBottom>
+                        Check Similarity
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 2, opacity: 0.9 }}>
+                        Organize by similarity
+                      </Typography>
+                      <Button
+                        variant="contained"
+                        component={RouterLink}
+                        to="/similarity"
+                        sx={{ 
+                          bgcolor: 'white', 
+                          color: 'secondary.main',
+                          '&:hover': { bgcolor: 'rgba(255,255,255,0.9)' } 
+                        }}
+                      >
+                        Check Now
+                      </Button>
+                    </Box>
+                  </Card>
+                </Grid>
               </Grid>
             </CardContent>
           </Card>
         </Grid>
         
         <Grid item xs={12} md={4}>
-          <Card sx={{ height: '100%' }}>
+          <Card sx={{ height: '100%', borderRadius: 2, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
             <CardHeader 
-              title="Document Overview" 
-              action={
-                <IconButton>
-                  <MoreIcon />
-                </IconButton>
-              }
+              title="Activity Overview" 
             />
             <Divider />
             <CardContent>
