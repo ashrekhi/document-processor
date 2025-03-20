@@ -13,6 +13,8 @@ import DocumentUpload from './pages/DocumentUpload';
 import DocumentList from './pages/DocumentList';
 import QuestionAnswering from './pages/QuestionAnswering';
 import FolderManagement from './pages/FolderManagement';
+import DocumentSimilarity from './pages/DocumentSimilarity';
+import SessionManagement from './pages/SessionManagement';
 
 // Create a theme
 const theme = createTheme({
@@ -124,6 +126,8 @@ function App() {
             <Route path="/documents" element={<DocumentList />} />
             <Route path="/ask" element={<QuestionAnswering />} />
             <Route path="/folders" element={<FolderManagement />} />
+            <Route path="/similarity" element={<DocumentSimilarity />} />
+            <Route path="/sessions" element={<SessionManagement />} />
           </Routes>
         </Layout>
       </Router>

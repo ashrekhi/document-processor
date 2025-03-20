@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8001';
 console.log('API URL being used:', API_URL);
 
 const api = axios.create({
@@ -139,6 +139,102 @@ export const deleteFolder = async (folderName) => {
   } catch (error) {
     console.error('Delete folder error details:', error);
     throw error.response?.data?.detail || error.message || 'Error deleting folder';
+  }
+};
+
+// Session management functions
+export const createSession = async (name, description = '', similarityThreshold = 0.7) => {
+  try {
+    const response = await api.post('/api/sessions', {
+      name,
+      description,
+      similarity_threshold: similarityThreshold
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Create session error details:', error);
+    throw error.response?.data?.detail || error.message || 'Error creating session';
+  }
+};
+
+export const listSessions = async () => {
+  try {
+    const response = await api.get('/api/sessions');
+    return response.data;
+  } catch (error) {
+    console.error('List sessions error details:', error);
+    return []; // Return empty array to prevent UI errors
+  }
+};
+
+export const getSession = async (sessionId) => {
+  try {
+    const response = await api.get(`/api/sessions/${sessionId}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Get session ${sessionId} error:`, error);
+    throw error.response?.data?.detail || error.message || 'Error retrieving session';
+  }
+};
+
+export const updateSession = async (sessionId, data) => {
+  try {
+    const response = await api.put(`/api/sessions/${sessionId}`, data);
+    return response.data;
+  } catch (error) {
+    console.error(`Update session ${sessionId} error:`, error);
+    throw error.response?.data?.detail || error.message || 'Error updating session';
+  }
+};
+
+export const deleteSession = async (sessionId) => {
+  try {
+    const response = await api.delete(`/api/sessions/${sessionId}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Delete session ${sessionId} error:`, error);
+    throw error.response?.data?.detail || error.message || 'Error deleting session';
+  }
+};
+
+export const uploadDocumentToSession = async (sessionId, file) => {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await api.post(`/api/sessions/${sessionId}/documents`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+        'X-Return-Similarity-Logs': 'true',
+        'X-Include-Similarity-Method': 'true',
+        'X-Include-Detail-Level': 'high'
+      },
+    });
+    
+    return response.data;
+  } catch (error) {
+    console.error(`Upload document to session ${sessionId} error:`, error);
+    throw error.response?.data?.detail || error.message || 'Error uploading document to session';
+  }
+};
+
+export const getSessionDocuments = async (sessionId) => {
+  try {
+    const response = await api.get(`/api/sessions/${sessionId}/documents`);
+    return response.data;
+  } catch (error) {
+    console.error(`Get session ${sessionId} documents error:`, error);
+    throw error.response?.data?.detail || error.message || 'Error retrieving session documents';
+  }
+};
+
+export const getSessionFolders = async (sessionId) => {
+  try {
+    const response = await api.get(`/api/sessions/${sessionId}/folders`);
+    return response.data;
+  } catch (error) {
+    console.error(`Get session ${sessionId} folders error:`, error);
+    throw error.response?.data?.detail || error.message || 'Error retrieving session folders';
   }
 };
 
