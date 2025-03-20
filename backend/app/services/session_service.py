@@ -26,7 +26,8 @@ class SessionService:
         except Exception as e:
             print(f"Error ensuring session folders: {str(e)}")
     
-    def create_session(self, name: str, description: str = None, similarity_threshold: float = 0.7) -> Dict[str, Any]:
+    def create_session(self, name: str, description: str = None, similarity_threshold: float = 0.7, 
+                      custom_prompt: str = None, prompt_model: str = "gpt-3.5-turbo") -> Dict[str, Any]:
         """Create a new document processing session"""
         try:
             # Generate a unique ID for the session
@@ -43,6 +44,8 @@ class SessionService:
                 "name": name,
                 "description": description,
                 "similarity_threshold": similarity_threshold,
+                "custom_prompt": custom_prompt,
+                "prompt_model": prompt_model,
                 "created_at": now,
                 "updated_at": now,
                 "active": True,
@@ -86,7 +89,8 @@ class SessionService:
             raise
     
     def update_session(self, session_id: str, name: str = None, description: str = None, 
-                       similarity_threshold: float = None, active: bool = None) -> Dict[str, Any]:
+                       similarity_threshold: float = None, active: bool = None,
+                       custom_prompt: str = None, prompt_model: str = None) -> Dict[str, Any]:
         """Update session metadata"""
         try:
             # Get current metadata
@@ -101,6 +105,10 @@ class SessionService:
                 session["similarity_threshold"] = similarity_threshold
             if active is not None:
                 session["active"] = active
+            if custom_prompt is not None:
+                session["custom_prompt"] = custom_prompt
+            if prompt_model is not None:
+                session["prompt_model"] = prompt_model
             
             session["updated_at"] = datetime.now().isoformat()
             
@@ -247,6 +255,8 @@ class SessionService:
             session = self.get_session(session_id)
             session_folder = session["folder_path"]
             similarity_threshold = session.get("similarity_threshold", 0.7)
+            custom_prompt = session.get("custom_prompt")
+            prompt_model = session.get("prompt_model", "gpt-3.5-turbo")
             
             # Generate a unique ID for the document
             doc_id = str(uuid.uuid4())
@@ -285,7 +295,9 @@ class SessionService:
                 filename=filename,
                 content=content,
                 folder=full_folder_path,
-                doc_id=doc_id
+                doc_id=doc_id,
+                custom_prompt=custom_prompt,
+                prompt_model=prompt_model
             )
             
             # Diagnostic: Check namespaces after processing
@@ -344,6 +356,8 @@ class SessionService:
             # Get session details
             session = self.get_session(session_id)
             session_folder = session["folder_path"]
+            custom_prompt = session.get("custom_prompt")
+            prompt_model = session.get("prompt_model", "gpt-3.5-turbo")
             
             # Extract text from the document
             text = self.document_service._extract_text(filename, content)
@@ -386,7 +400,9 @@ class SessionService:
                         similarity_result = self.vector_db_service.calculate_document_similarity(
                             doc1_text=text, 
                             doc2_text=self._get_document_text(doc_id, full_folder_path), 
-                            method="hybrid"
+                            method="hybrid",
+                            custom_prompt=custom_prompt,
+                            prompt_model=prompt_model
                         )
                         
                         similarity = similarity_result.get("similarity", 0.0)
@@ -449,7 +465,7 @@ class SessionService:
             similarity_logs["is_new_folder"] = True
             
             if best_similarity > 0:
-                similarity_logs["placement_reason"] = f"Best match was {best_similarity:.2f} with document in '{best_bucket}' bucket, below threshold of {similarity_threshold}"
+                similarity_logs["placement_reason"] = f"Best match was {best_similarity:.2f} with document in '{best_bucket}' bucket, which is < threshold of {similarity_threshold}"
             else:
                 similarity_logs["placement_reason"] = "No similar documents found"
                 

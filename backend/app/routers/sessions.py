@@ -26,7 +26,9 @@ async def create_session(
         session = session_service.create_session(
             name=session_data.name,
             description=session_data.description,
-            similarity_threshold=session_data.similarity_threshold or 0.7
+            similarity_threshold=session_data.similarity_threshold or 0.7,
+            custom_prompt=session_data.custom_prompt,
+            prompt_model=session_data.prompt_model
         )
         return session
     except Exception as e:
@@ -70,7 +72,9 @@ async def update_session(
             name=session_data.name,
             description=session_data.description,
             similarity_threshold=session_data.similarity_threshold,
-            active=session_data.active
+            active=session_data.active,
+            custom_prompt=session_data.custom_prompt,
+            prompt_model=session_data.prompt_model
         )
         return session
     except ValueError as e:

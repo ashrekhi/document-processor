@@ -931,7 +931,8 @@ class VectorDBService:
             print(f"VECTOR CROSS-NAMESPACE SEARCH ERROR: Full error details:\n{traceback.format_exc()}")
             raise ValueError(f"Cross-namespace search failed: {str(e)}")
 
-    def calculate_document_similarity(self, doc1_text: str, doc2_text: str, method: str = "embedding") -> Dict[str, Any]:
+    def calculate_document_similarity(self, doc1_text: str, doc2_text: str, method: str = "embedding", 
+                               custom_prompt: str = None, prompt_model: str = "gpt-3.5-turbo") -> Dict[str, Any]:
         """
         Calculate similarity between two document texts using various methods.
         
@@ -939,6 +940,8 @@ class VectorDBService:
             doc1_text: Text content of the first document
             doc2_text: Text content of the second document
             method: Similarity method to use ("embedding", "text", or "hybrid")
+            custom_prompt: Optional prompt to process the text before comparison (e.g., to remove headers/footers)
+            prompt_model: The OpenAI model to use for processing the prompt (default: "gpt-3.5-turbo")
             
         Returns:
             Dict containing similarity scores and metadata
@@ -949,13 +952,53 @@ class VectorDBService:
             print(f"Document 2 length: {len(doc2_text)} characters")
             print(f"Using method: {method}")
             
+            # Apply custom processing to the document text if a prompt is provided
+            if custom_prompt:
+                print(f"Applying custom prompt to process document texts before comparison using model: {prompt_model}")
+                try:
+                    # Process text using OpenAI to apply custom instructions
+                    response1 = self.openai_client.chat.completions.create(
+                        model=prompt_model,
+                        messages=[
+                            {"role": "system", "content": custom_prompt},
+                            {"role": "user", "content": doc1_text}
+                        ],
+                        temperature=0.0
+                    )
+                    
+                    response2 = self.openai_client.chat.completions.create(
+                        model=prompt_model,
+                        messages=[
+                            {"role": "system", "content": custom_prompt},
+                            {"role": "user", "content": doc2_text}
+                        ],
+                        temperature=0.0
+                    )
+                    
+                    # Extract processed text
+                    processed_doc1_text = response1.choices[0].message.content
+                    processed_doc2_text = response2.choices[0].message.content
+                    
+                    # Log the changes for debugging
+                    print(f"Original doc1 length: {len(doc1_text)}, Processed doc1 length: {len(processed_doc1_text)}")
+                    print(f"Original doc2 length: {len(doc2_text)}, Processed doc2 length: {len(processed_doc2_text)}")
+                    
+                    # Use the processed text instead
+                    doc1_text = processed_doc1_text
+                    doc2_text = processed_doc2_text
+                except Exception as e:
+                    print(f"Error applying custom prompt to document text: {str(e)}")
+                    print(f"Using original document text without custom processing")
+            
             result = {
                 "similarity": 0.0,
                 "embedding_similarity": 0.0,
                 "text_similarity": 0.0,
                 "comparison_time": 0.0,
                 "method": method,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
+                "custom_prompt_applied": custom_prompt is not None,
+                "prompt_model": prompt_model if custom_prompt else None
             }
             
             start_time = time.time()

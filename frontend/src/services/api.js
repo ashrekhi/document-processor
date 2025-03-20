@@ -143,12 +143,14 @@ export const deleteFolder = async (folderName) => {
 };
 
 // Session management functions
-export const createSession = async (name, description = '', similarityThreshold = 0.7) => {
+export const createSession = async (name, description = '', similarityThreshold = 0.7, customPrompt = '', promptModel = 'gpt-3.5-turbo') => {
   try {
     const response = await api.post('/api/sessions', {
       name,
       description,
-      similarity_threshold: similarityThreshold
+      similarity_threshold: similarityThreshold,
+      custom_prompt: customPrompt,
+      prompt_model: promptModel
     });
     return response.data;
   } catch (error) {
@@ -179,7 +181,13 @@ export const getSession = async (sessionId) => {
 
 export const updateSession = async (sessionId, data) => {
   try {
-    const response = await api.put(`/api/sessions/${sessionId}`, data);
+    const response = await api.put(`/api/sessions/${sessionId}`, {
+      ...data,
+      // Ensure consistent naming with backend
+      similarity_threshold: data.similarityThreshold !== undefined ? data.similarityThreshold : data.similarity_threshold,
+      custom_prompt: data.customPrompt !== undefined ? data.customPrompt : data.custom_prompt,
+      prompt_model: data.promptModel !== undefined ? data.promptModel : data.prompt_model
+    });
     return response.data;
   } catch (error) {
     console.error(`Update session ${sessionId} error:`, error);

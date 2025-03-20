@@ -25,6 +25,8 @@ import {
   IconButton,
   Collapse,
   Tooltip,
+  FormHelperText,
+  Slider,
 } from '@mui/material';
 import {
   Upload as UploadIcon,
@@ -44,8 +46,60 @@ import {
   listSessions, 
   createSession, 
   getSessionDocuments, 
-  uploadDocumentToSession 
+  uploadDocumentToSession,
+  updateSession
 } from '../services/api';
+
+// Available LLM models
+const availableModels = [
+  { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
+  { value: 'gpt-4', label: 'GPT-4' },
+  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' }
+];
+
+// Reusable component for prompt and model selection
+const PromptModelSelector = ({ 
+  customPrompt, 
+  setCustomPrompt, 
+  promptModel, 
+  setPromptModel, 
+  size = "small",
+  rows = 2
+}) => {
+  return (
+    <Box>
+      <TextField
+        fullWidth
+        label="Custom Prompt (Optional)"
+        placeholder="Instructions to clean document text (e.g., Remove headers and footers)"
+        value={customPrompt}
+        onChange={(e) => setCustomPrompt(e.target.value)}
+        multiline
+        rows={rows}
+        size={size}
+        sx={{ mb: 1 }}
+        helperText="The prompt will be applied to preprocess document text before similarity matching"
+      />
+      <FormControl fullWidth size={size} sx={{ mb: 2 }}>
+        <InputLabel id="prompt-model-label">Prompt Model</InputLabel>
+        <Select
+          labelId="prompt-model-label"
+          value={promptModel}
+          label="Prompt Model"
+          onChange={(e) => setPromptModel(e.target.value)}
+          disabled={!customPrompt.trim()}
+        >
+          {availableModels.map((model) => (
+            <MenuItem key={model.value} value={model.value}>
+              {model.label}
+            </MenuItem>
+          ))}
+        </Select>
+        <FormHelperText>Select the LLM to use for text processing in this session</FormHelperText>
+      </FormControl>
+    </Box>
+  );
+};
 
 const DocumentSimilarity = () => {
   const [loading, setLoading] = useState(false);
@@ -58,11 +112,16 @@ const DocumentSimilarity = () => {
   // File upload
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [customPrompt, setCustomPrompt] = useState('');
+  const [promptModel, setPromptModel] = useState('gpt-3.5-turbo');
+  const fileInputRef = React.useRef(null);
   
   // New session
   const [showNewSession, setShowNewSession] = useState(false);
   const [newSessionName, setNewSessionName] = useState('');
   const [similarityThreshold, setSimilarityThreshold] = useState(0.7);
+  const [newSessionCustomPrompt, setNewSessionCustomPrompt] = useState('');
+  const [newSessionPromptModel, setNewSessionPromptModel] = useState('gpt-3.5-turbo');
   const [creatingSession, setCreatingSession] = useState(false);
 
   // Similarity logs
@@ -79,8 +138,15 @@ const DocumentSimilarity = () => {
   useEffect(() => {
     if (selectedSession) {
       fetchSessionDocuments(selectedSession);
+      
+      // Set custom prompt and model from the selected session
+      const session = sessions.find(s => s.id === selectedSession);
+      if (session) {
+        setCustomPrompt(session.custom_prompt || '');
+        setPromptModel(session.prompt_model || 'gpt-3.5-turbo');
+      }
     }
-  }, [selectedSession]);
+  }, [selectedSession, sessions]);
 
   const fetchSessions = async () => {
     try {
@@ -120,6 +186,10 @@ const DocumentSimilarity = () => {
     }
   };
 
+  const triggerFileInput = () => {
+    fileInputRef.current.click();
+  };
+
   const handleFileUpload = async () => {
     if (!file) {
       setError('Please select a file to upload');
@@ -148,6 +218,41 @@ const DocumentSimilarity = () => {
       };
       setLogs(prevLogs => [initialLog, ...prevLogs]);
       setProcessingLog(processingLogId);
+      
+      // Get the current session data to update its custom prompt if needed
+      const currentSession = sessions.find(s => s.id === selectedSession);
+      
+      // Always update session with the current prompt and model values
+      // This ensures the session metadata stays in sync with what the user sees
+      if (currentSession && 
+          (currentSession.custom_prompt !== customPrompt.trim() || 
+           currentSession.prompt_model !== promptModel)) {
+        try {
+          // Update the session with the new custom prompt and model
+          await updateSession(selectedSession, {
+            ...currentSession,
+            custom_prompt: customPrompt.trim(),
+            prompt_model: promptModel
+          });
+          
+          // Add a log about the custom prompt and model
+          addLog({
+            type: 'info',
+            title: 'Custom Prompt Updated',
+            details: {
+              message: customPrompt.trim() 
+                ? `Using custom prompt with model ${promptModel}: ${customPrompt.trim()}`
+                : `Using no custom prompt for preprocessing`
+            },
+            timestamp: new Date()
+          });
+          
+          // Refresh sessions to get updated data
+          await fetchSessions();
+        } catch (err) {
+          console.error('Error updating session with custom prompt:', err);
+        }
+      }
       
       // Use the uploadDocumentToSession function from our API service
       const uploadData = await uploadDocumentToSession(selectedSession, file);
@@ -259,14 +364,19 @@ const DocumentSimilarity = () => {
       setError(null);
       setSuccess(null);
 
+      // Include the model in the session data
       await createSession(
         newSessionName.trim(),
         'Created via Document Similarity page',
-        similarityThreshold
+        similarityThreshold,
+        newSessionCustomPrompt.trim(),
+        newSessionPromptModel
       );
 
       setSuccess(`Session "${newSessionName}" created successfully`);
       setNewSessionName('');
+      setNewSessionCustomPrompt('');
+      setNewSessionPromptModel('gpt-3.5-turbo');
       setShowNewSession(false);
       
       // Refresh sessions and select the new one
@@ -334,7 +444,7 @@ const DocumentSimilarity = () => {
 
   // Get icon for log type
   const getLogIcon = (type) => {
-    switch (type) {
+    switch(type) {
       case 'info':
         return <InfoIcon />;
       case 'success':
@@ -457,6 +567,10 @@ const DocumentSimilarity = () => {
             {log.details.reason && (
               <Typography variant="body2" sx={{ mt: 0.5 }}>
                 <strong>Reason:</strong> {log.details.reason}
+                {/* Add clarification for threshold comparison if needed */}
+                {log.details.reason && log.details.reason.includes("below threshold") && (
+                  <span> (Documents with similarity score ≥ threshold are grouped together)</span>
+                )}
               </Typography>
             )}
           </Box>
@@ -471,48 +585,34 @@ const DocumentSimilarity = () => {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      <Typography variant="h4" fontWeight="bold" mb={3}>
-        Document Organization
+    <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
+      <Typography variant="h4" gutterBottom>
+        Document Similarity
       </Typography>
       
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+      
+      {success && (
+        <Alert severity="success" sx={{ mb: 3 }} onClose={() => setSuccess(null)}>
+          {success}
+        </Alert>
+      )}
+      
       <Grid container spacing={3}>
-        {/* Left Side - Upload and Session Select */}
-        <Grid item xs={12} md={4}>
-          <Paper elevation={0} sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-            <Typography variant="h6" mb={2}>
+        {/* Session & Upload Section - Top Left */}
+        <Grid item xs={12} md={8}>
+          <Paper elevation={0} sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', height: '100%' }}>
+            <Typography variant="h6" gutterBottom>
               Session & Upload
             </Typography>
             
-            {error && (
-              <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
-                {error}
-              </Alert>
-            )}
-            
-            {success && (
-              <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>
-                {success}
-              </Alert>
-            )}
-            
-            {/* Session Selection */}
-            <Box sx={{ mb: 3 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                <Typography variant="subtitle1" sx={{ flexGrow: 1 }}>
-                  Select Session
-                </Typography>
-                <Button 
-                  size="small" 
-                  startIcon={<AddIcon />}
-                  onClick={() => setShowNewSession(!showNewSession)}
-                >
-                  New Session
-                </Button>
-              </Box>
-              
+            <Box sx={{ mb: 2 }}>
               {showNewSession ? (
-                <Box sx={{ mb: 2, p: 2, bgcolor: '#f5f5f5', borderRadius: 1 }}>
+                <Box>
                   <TextField
                     fullWidth
                     label="Session Name"
@@ -521,23 +621,43 @@ const DocumentSimilarity = () => {
                     size="small"
                     sx={{ mb: 2 }}
                   />
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                    <Typography variant="caption" sx={{ flexGrow: 1 }}>
-                      Similarity Threshold: {similarityThreshold}
-                    </Typography>
-                  </Box>
-                  <input
-                    type="range"
-                    min="0.5"
-                    max="0.95"
-                    step="0.05"
-                    value={similarityThreshold}
-                    onChange={(e) => setSimilarityThreshold(parseFloat(e.target.value))}
-                    style={{ width: '100%' }}
-                  />
-                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
-                    Higher values require documents to be more similar to be grouped together
+                  
+                  <Typography id="similarity-threshold-slider" gutterBottom>
+                    Similarity Threshold: {similarityThreshold}
                   </Typography>
+                  
+                  <Slider
+                    value={similarityThreshold}
+                    onChange={(e, value) => setSimilarityThreshold(value)}
+                    step={0.05}
+                    min={0.5}
+                    max={0.95}
+                    valueLabelDisplay="auto"
+                    aria-labelledby="similarity-threshold-slider"
+                    sx={{ mb: 1 }}
+                  />
+                  
+                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
+                    Higher values require documents to be more similar to be grouped together.
+                    Documents with similarity score &gt;= threshold are grouped in the same bucket.
+                  </Typography>
+                  
+                  <Typography variant="body2" sx={{ mb: 1.5 }}>
+                    <strong>Session Text Processing:</strong>
+                  </Typography>
+                  
+                  <PromptModelSelector
+                    customPrompt={newSessionCustomPrompt}
+                    setCustomPrompt={setNewSessionCustomPrompt}
+                    promptModel={newSessionPromptModel}
+                    setPromptModel={setNewSessionPromptModel}
+                    rows={4}
+                  />
+                  
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                    These settings will be applied to all documents uploaded to this session.
+                  </Typography>
+                  
                   <Box sx={{ display: 'flex', gap: 1 }}>
                     <Button
                       variant="outlined"
@@ -576,6 +696,26 @@ const DocumentSimilarity = () => {
               )}
             </Box>
             
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+              <Button 
+                startIcon={<AddIcon />} 
+                onClick={() => setShowNewSession(true)}
+                disabled={showNewSession}
+                size="small"
+              >
+                New Session
+              </Button>
+              
+              <Button
+                startIcon={<RefreshIcon />}
+                onClick={fetchSessions}
+                disabled={loading}
+                size="small"
+              >
+                Refresh
+              </Button>
+            </Box>
+            
             <Divider sx={{ my: 2 }} />
             
             {/* Document Upload */}
@@ -584,24 +724,40 @@ const DocumentSimilarity = () => {
             </Typography>
             
             <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" sx={{ mb: 1.5 }}>
+                <strong>Session Preprocessing Settings:</strong>
+              </Typography>
+              
+              <PromptModelSelector
+                customPrompt={customPrompt}
+                setCustomPrompt={setCustomPrompt}
+                promptModel={promptModel}
+                setPromptModel={setPromptModel}
+                rows={3}
+              />
+              
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                These settings will be saved to the current session and applied to all documents.
+              </Typography>
+              
               <input
+                ref={fileInputRef}
                 id="file-upload"
                 type="file"
                 accept=".pdf,.txt,.md"
                 onChange={handleFileChange}
                 style={{ display: 'none' }}
               />
-              <label htmlFor="file-upload">
-                <Button
-                  variant="outlined"
-                  component="span"
-                  fullWidth
-                  startIcon={<UploadIcon />}
-                  sx={{ mb: 1 }}
-                >
-                  Select File
-                </Button>
-              </label>
+              
+              <Button
+                variant="outlined"
+                onClick={triggerFileInput}
+                fullWidth
+                startIcon={<UploadIcon />}
+                sx={{ mb: 1 }}
+              >
+                Select File
+              </Button>
               
               <Typography variant="body2" align="center">
                 {file ? file.name : 'No file selected'}
@@ -623,185 +779,257 @@ const DocumentSimilarity = () => {
               Documents will be automatically grouped by similarity
             </Typography>
           </Paper>
-          
-          {selectedSession && sessions.length > 0 && (
-            <Paper elevation={0} sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', mt: 3 }}>
-              <Typography variant="h6" gutterBottom>
-                Session Info
-              </Typography>
-              
-              {loading ? (
-                <LinearProgress />
-              ) : (
-                <Box>
-                  <Typography variant="body2">
-                    <strong>Name:</strong> {sessions.find(s => s.id === selectedSession)?.name}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>Similarity Threshold:</strong> {sessions.find(s => s.id === selectedSession)?.similarity_threshold.toFixed(2)}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>Document Count:</strong> {sessionDocuments.length}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>Folder Count:</strong> {Object.keys(documentsByFolder).length}
-                  </Typography>
-                </Box>
-              )}
-            </Paper>
-          )}
         </Grid>
         
-        {/* Right Side - Documents organized by folders and similarity logs */}
-        <Grid item xs={12} md={8}>
-          {/* Similarity Logs Panel */}
-          <Paper elevation={0} sx={{ p: 3, mb: 3, borderRadius: 2, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <CodeIcon sx={{ mr: 1, color: 'primary.main' }} />
-                <Typography variant="h6" sx={{ flexGrow: 1 }}>
-                  Similarity Processing Logs
-                </Typography>
-              </Box>
-              <Box>
-                <Tooltip title="Clear Logs">
-                  <IconButton size="small" onClick={clearLogs} disabled={logs.length === 0}>
-                    <RefreshIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title={showLogs ? "Hide Logs" : "Show Logs"}>
-                  <IconButton size="small" onClick={() => setShowLogs(!showLogs)}>
-                    {showLogs ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-                  </IconButton>
-                </Tooltip>
-              </Box>
-            </Box>
-
-            <Collapse in={showLogs}>
-              {processingLog && (
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <CircularProgress size={20} sx={{ mr: 1 }} />
-                  <Typography variant="body2">Processing document similarity...</Typography>
-                </Box>
-              )}
-              
-              {logs.length === 0 ? (
-                <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 3 }}>
-                  No logs available. Upload a document to see similarity processing details.
-                </Typography>
-              ) : (
-                <List sx={{ maxHeight: 300, overflowY: 'auto', bgcolor: '#f5f5f5', borderRadius: 1 }}>
-                  {logs.map((log, index) => (
-                    <ListItem 
-                      key={index} 
-                      sx={{ 
-                        borderBottom: index !== logs.length - 1 ? '1px solid rgba(0,0,0,0.08)' : 'none',
-                        py: 1
-                      }}
-                    >
-                      <ListItemIcon sx={{ minWidth: 36 }}>
-                        {getLogIcon(log.type)}
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={
-                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                            <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>
-                              {log.title}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {formatTime(log.timestamp)}
-                            </Typography>
-                          </Box>
-                        }
-                        secondary={renderLogContent(log)}
-                      />
-                    </ListItem>
-                  ))}
-                </List>
-              )}
-            </Collapse>
-          </Paper>
-
-          {/* Documents by Folder */}
-          <Paper elevation={0} sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-            <Typography variant="h6" mb={2}>
-              Documents Organized by Similarity
+        {/* Session Info - Top Right */}
+        <Grid item xs={12} md={4}>
+          <Paper elevation={0} sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', height: '100%' }}>
+            <Typography variant="h6" gutterBottom>
+              Session Info
             </Typography>
             
-            {loading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-                <CircularProgress />
-              </Box>
+            {loading && !selectedSession ? (
+              <LinearProgress />
             ) : !selectedSession ? (
-              <Alert severity="info">
-                Please select a session to view documents
-              </Alert>
-            ) : sessionDocuments.length === 0 ? (
-              <Box sx={{ textAlign: 'center', py: 4 }}>
-                <DocumentIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-                <Typography color="text.secondary">
-                  No documents found in this session
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Upload documents to see them organized by similarity
-                </Typography>
-              </Box>
+              <Typography variant="body1" sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
+                Select or create a session to view details
+              </Typography>
             ) : (
               <Box>
-                {Object.entries(documentsByFolder).map(([folder, docs], folderIndex) => (
-                  <Box key={folder} sx={{ mb: 3 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                      <Box 
-                        sx={{ 
-                          width: 16, 
-                          height: 16, 
-                          borderRadius: '50%', 
-                          bgcolor: getFolderColor(folderIndex),
-                          mr: 1
-                        }} 
-                      />
-                      <Typography variant="subtitle1" fontWeight="bold">
-                        {formatFolderName(folder)}
-                      </Typography>
-                      <Chip 
-                        label={`${docs.length} ${docs.length === 1 ? 'document' : 'documents'}`} 
-                        size="small" 
-                        sx={{ ml: 1 }} 
-                      />
+                <Typography variant="body1">
+                  <strong>Name:</strong> {sessions.find(s => s.id === selectedSession)?.name}
+                </Typography>
+                <Typography variant="body1">
+                  <strong>Similarity Threshold:</strong> {sessions.find(s => s.id === selectedSession)?.similarity_threshold.toFixed(2)}
+                </Typography>
+                {sessions.find(s => s.id === selectedSession)?.custom_prompt && (
+                  <>
+                    <Typography variant="body1" sx={{ mb: 0.5 }}>
+                      <strong>Custom Prompt:</strong>
+                    </Typography>
+                    <Box 
+                      sx={{ 
+                        maxHeight: '100px', 
+                        overflowY: 'auto', 
+                        p: 1, 
+                        bgcolor: 'grey.50', 
+                        borderRadius: 1,
+                        mb: 1,
+                        fontSize: '0.875rem'
+                      }}
+                    >
+                      {sessions.find(s => s.id === selectedSession)?.custom_prompt}
                     </Box>
+                  </>
+                )}
+                {sessions.find(s => s.id === selectedSession)?.prompt_model && (
+                  <Typography variant="body1">
+                    <strong>Prompt Model:</strong> {sessions.find(s => s.id === selectedSession)?.prompt_model}
+                  </Typography>
+                )}
+                <Typography variant="body1">
+                  <strong>Document Count:</strong> {sessionDocuments.length}
+                </Typography>
+                <Typography variant="body1">
+                  <strong>Folder Count:</strong> {Object.keys(documentsByFolder).length}
+                </Typography>
+
+                <Box sx={{ mt: 3 }}>
+                  <Typography variant="subtitle1" gutterBottom>
+                    Session Actions
+                  </Typography>
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    size="small"
+                    onClick={() => fetchSessionDocuments(selectedSession)}
+                    sx={{ mr: 1, mb: 1 }}
+                  >
+                    Refresh Documents
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    size="small"
+                    sx={{ mb: 1 }}
+                  >
+                    Delete Session
+                  </Button>
+                </Box>
+              </Box>
+            )}
+          </Paper>
+        </Grid>
+        
+        {/* Logs Section - Bottom Left */}
+        <Grid item xs={12} md={6}>
+          <Paper elevation={0} sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6">
+                Logs
+              </Typography>
+              <Button 
+                variant="outlined" 
+                size="small" 
+                onClick={clearLogs}
+                disabled={logs.length === 0}
+              >
+                Clear Logs
+              </Button>
+            </Box>
+            
+            <Box sx={{ flexGrow: 1, overflow: 'auto', maxHeight: '500px' }}>
+              {logs.length === 0 ? (
+                <Typography variant="body1" sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
+                  No logs to display. Upload a document to see similarity processing logs.
+                </Typography>
+              ) : (
+                logs.map((log, index) => (
+                  <Box 
+                    key={log.id || index} 
+                    sx={{ 
+                      p: 1, 
+                      mb: 1, 
+                      borderRadius: 1, 
+                      bgcolor: log.type === 'error' ? 'error.50' : 
+                              log.type === 'processing' ? 'grey.100' : 
+                              'background.paper',
+                      border: '1px solid',
+                      borderColor: log.type === 'error' ? 'error.200' : 
+                                  log.type === 'comparison' ? 'primary.100' : 
+                                  log.type === 'processing' ? 'grey.300' : 
+                                  'grey.200'
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                      <Typography variant="subtitle2" color={log.type === 'error' ? 'error' : 'text.primary'}>
+                        {log.title || log.type || 'Log Entry'}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {new Date(log.timestamp).toLocaleTimeString()}
+                      </Typography>
+                    </Box>
+                    {log.type === 'comparison' ? (
+                      <Box>
+                        <Typography variant="body2">
+                          Comparing <strong>{log.details.documentA}</strong> with <strong>{log.details.documentB}</strong>
+                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+                          <Chip 
+                            size="small" 
+                            label={`Score: ${(log.details.score * 100).toFixed(1)}%`} 
+                            color={log.details.score >= 0.7 ? 'success' : 'default'}
+                          />
+                          <Chip size="small" label={`Method: ${log.details.method}`} />
+                          <Chip size="small" label={log.details.decision} />
+                        </Box>
+                      </Box>
+                    ) : (
+                      <Typography variant="body2">
+                        {log.message || log.details?.message || JSON.stringify(log.details)}
+                      </Typography>
+                    )}
+                  </Box>
+                ))
+              )}
+            </Box>
+          </Paper>
+        </Grid>
+        
+        {/* Documents Organized - Bottom Right */}
+        <Grid item xs={12} md={6}>
+          <Paper elevation={0} sx={{ p: 3, borderRadius: 2, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <Typography variant="h6" gutterBottom>
+              Documents Organized
+            </Typography>
+            
+            {loading && selectedSession ? (
+              <LinearProgress />
+            ) : !selectedSession ? (
+              <Typography variant="body1" sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
+                Select a session to view documents
+              </Typography>
+            ) : sessionDocuments.length === 0 ? (
+              <Typography variant="body1" sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
+                No documents in this session. Upload documents to organize them by similarity.
+              </Typography>
+            ) : (
+              <Box sx={{ flexGrow: 1, overflow: 'auto', maxHeight: '500px' }}>
+                {Object.entries(documentsByFolder).map(([folder, docs]) => (
+                  <Box key={folder} sx={{ mb: 3 }}>
+                    <Typography 
+                      variant="subtitle1" 
+                      sx={{ 
+                        p: 1, 
+                        bgcolor: 'primary.main', 
+                        color: 'white', 
+                        borderRadius: '4px 4px 0 0'
+                      }}
+                    >
+                      {formatFolderName(folder)} ({docs.length})
+                    </Typography>
                     
-                    <Grid container spacing={2}>
-                      {docs.map((doc) => (
-                        <Grid item xs={12} sm={6} md={4} key={doc.id}>
-                          <Card 
-                            variant="outlined" 
+                    <List sx={{ 
+                      p: 0, 
+                      border: '1px solid', 
+                      borderColor: 'primary.light',
+                      borderTop: 'none',
+                      borderRadius: '0 0 4px 4px',
+                      bgcolor: 'background.paper'
+                    }}>
+                      {docs.map((doc) => {
+                        // Extract just the filename without the UUID prefix
+                        let displayName = doc.filename;
+                        
+                        // Check if the filename starts with a UUID pattern
+                        // UUIDs typically have a pattern like: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+                        // or a shortened version without dashes
+                        const uuidPattern = /^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}/i;
+                        const shortUuidPattern = /^[a-f0-9]{8,32}/i;
+                        
+                        if (uuidPattern.test(displayName)) {
+                          // If the filename contains a full UUID at the start, remove it
+                          const uuidMatch = displayName.match(uuidPattern)[0];
+                          // Check if there's a separator after the UUID (underscore, dash, etc.)
+                          const separatorIndex = uuidMatch.length;
+                          if (displayName.length > separatorIndex && /[-_]/.test(displayName[separatorIndex])) {
+                            displayName = displayName.substring(separatorIndex + 1);
+                          }
+                        } else if (displayName.includes('_')) {
+                          // Common case - filename has format "id_actualfilename.ext"
+                          const firstUnderscoreIndex = displayName.indexOf('_');
+                          const firstPart = displayName.substring(0, firstUnderscoreIndex);
+                          
+                          // If the first part looks like a hex ID (all hex chars), remove it
+                          if (/^[a-f0-9]+$/i.test(firstPart)) {
+                            displayName = displayName.substring(firstUnderscoreIndex + 1);
+                          }
+                        }
+                        
+                        return (
+                          <ListItem 
+                            key={doc.id} 
+                            divider 
                             sx={{ 
-                              height: '100%', 
-                              borderLeft: `4px solid ${getFolderColor(folderIndex)}`,
-                              transition: 'transform 0.2s',
-                              '&:hover': {
-                                transform: 'translateY(-4px)',
-                                boxShadow: '0 4px 8px rgba(0,0,0,0.1)'
+                              py: 0.5,
+                              '&:last-child': {
+                                borderBottom: 'none'
                               }
                             }}
                           >
-                            <CardContent>
-                              <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
-                                <DocumentIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                                <Box>
-                                  <Typography variant="subtitle2" noWrap>
-                                    {doc.filename || 'Unnamed Document'}
-                                  </Typography>
-                                  <Typography variant="caption" color="text.secondary">
-                                    {new Date(doc.created_at).toLocaleDateString()}
-                                  </Typography>
-                                </Box>
-                              </Box>
-                            </CardContent>
-                          </Card>
-                        </Grid>
-                      ))}
-                    </Grid>
+                            <ListItemIcon sx={{ minWidth: 40 }}>
+                              <DocumentIcon color="primary" />
+                            </ListItemIcon>
+                            <ListItemText 
+                              primary={displayName} 
+                              secondary={`ID: ${doc.id.substring(0, 8)}`} 
+                              primaryTypographyProps={{ variant: 'body2' }}
+                              secondaryTypographyProps={{ variant: 'caption' }}
+                            />
+                          </ListItem>
+                        );
+                      })}
+                    </List>
                   </Box>
                 ))}
               </Box>

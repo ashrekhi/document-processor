@@ -46,6 +46,7 @@ import {
   uploadDocumentToSession,
   getSessionFolders,
   getSessionDocuments,
+  updateSession,
 } from '../services/api';
 
 function SessionManagement() {
@@ -60,6 +61,7 @@ function SessionManagement() {
   const [newSessionName, setNewSessionName] = useState('');
   const [newSessionDesc, setNewSessionDesc] = useState('');
   const [similarityThreshold, setSimilarityThreshold] = useState(0.7);
+  const [customPrompt, setCustomPrompt] = useState('');
   const [creating, setCreating] = useState(false);
 
   // Delete dialog state
@@ -79,6 +81,15 @@ function SessionManagement() {
   const [sessionFolders, setSessionFolders] = useState({});
   const [sessionDocuments, setSessionDocuments] = useState({});
   const [folderLoading, setFolderLoading] = useState(false);
+
+  // Update session dialog state
+  const [showUpdateForm, setShowUpdateForm] = useState(false);
+  const [sessionToUpdate, setSessionToUpdate] = useState(null);
+  const [updateSessionName, setUpdateSessionName] = useState('');
+  const [updateSessionDesc, setUpdateSessionDesc] = useState('');
+  const [updateSimilarityThreshold, setUpdateSimilarityThreshold] = useState(0.7);
+  const [updateCustomPrompt, setUpdateCustomPrompt] = useState('');
+  const [updating, setUpdating] = useState(false);
 
   // Fetch sessions when component mounts
   useEffect(() => {
@@ -109,6 +120,7 @@ function SessionManagement() {
     setNewSessionName('');
     setNewSessionDesc('');
     setSimilarityThreshold(0.7);
+    setCustomPrompt('');
   };
 
   const handleCreateSession = async (e) => {
@@ -126,7 +138,8 @@ function SessionManagement() {
       await createSession(
         newSessionName.trim(),
         newSessionDesc.trim(),
-        similarityThreshold
+        similarityThreshold,
+        customPrompt.trim()
       );
       setSuccess(`Session "${newSessionName}" created successfully`);
       handleSessionFormClose();
@@ -245,6 +258,49 @@ function SessionManagement() {
     return new Date(dateString).toLocaleString();
   };
 
+  const handleUpdateClick = (session) => {
+    setSessionToUpdate(session);
+    setUpdateSessionName(session.name);
+    setUpdateSessionDesc(session.description || '');
+    setUpdateSimilarityThreshold(session.similarity_threshold);
+    setUpdateCustomPrompt(session.custom_prompt || '');
+    setShowUpdateForm(true);
+  };
+
+  const handleUpdateFormClose = () => {
+    setShowUpdateForm(false);
+    setSessionToUpdate(null);
+  };
+
+  const handleUpdateSession = async (e) => {
+    e.preventDefault();
+    if (!updateSessionName.trim()) {
+      setError('Please enter a session name');
+      return;
+    }
+
+    setUpdating(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      await updateSession(sessionToUpdate.id, {
+        name: updateSessionName.trim(),
+        description: updateSessionDesc.trim(),
+        similarity_threshold: updateSimilarityThreshold,
+        custom_prompt: updateCustomPrompt.trim()
+      });
+      setSuccess(`Session "${updateSessionName}" updated successfully`);
+      handleUpdateFormClose();
+      fetchSessions();
+    } catch (error) {
+      console.error('Error updating session:', error);
+      setError(typeof error === 'string' ? error : 'Failed to update session');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -331,9 +387,16 @@ function SessionManagement() {
               <AccordionDetails>
                 <Box>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-                    <Typography variant="subtitle1">
-                      Similarity Threshold: {session.similarity_threshold}
-                    </Typography>
+                    <Box>
+                      <Typography variant="subtitle1">
+                        Similarity Threshold: {session.similarity_threshold}
+                      </Typography>
+                      {session.custom_prompt && (
+                        <Typography variant="subtitle1" sx={{ mt: 1 }}>
+                          Custom Prompt: {session.custom_prompt}
+                        </Typography>
+                      )}
+                    </Box>
                     <Box>
                       <Button
                         variant="contained"
@@ -344,6 +407,16 @@ function SessionManagement() {
                         sx={{ mr: 1 }}
                       >
                         Upload Document
+                      </Button>
+                      <Button 
+                        variant="contained"
+                        color="secondary"
+                        size="small"
+                        startIcon={<EditIcon />}
+                        onClick={() => handleUpdateClick(session)}
+                        sx={{ mr: 1 }}
+                      >
+                        Edit Settings
                       </Button>
                       <Button
                         variant="outlined"
@@ -459,6 +532,19 @@ function SessionManagement() {
                 Higher values (closer to 1.0) require documents to be more similar to be grouped together
               </Typography>
             </Box>
+            <TextField
+              margin="dense"
+              label="Custom Prompt (Optional)"
+              type="text"
+              fullWidth
+              multiline
+              rows={3}
+              value={customPrompt}
+              onChange={(e) => setCustomPrompt(e.target.value)}
+              sx={{ mb: 2 }}
+              placeholder="Instructions to clean document text for similarity matching (e.g., 'Remove headers and footers')"
+              helperText="The prompt will be applied to preprocess document text before similarity matching"
+            />
           </DialogContent>
           <DialogActions>
             <Button onClick={handleSessionFormClose}>Cancel</Button>
@@ -550,6 +636,82 @@ function SessionManagement() {
               startIcon={uploading ? <CircularProgress size={20} /> : null}
             >
               {uploading ? 'Uploading...' : 'Upload'}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
+
+      {/* Update Session Dialog */}
+      <Dialog open={showUpdateForm} onClose={handleUpdateFormClose} maxWidth="sm" fullWidth>
+        <DialogTitle>Update Session</DialogTitle>
+        <form onSubmit={handleUpdateSession}>
+          <DialogContent>
+            <TextField
+              autoFocus
+              margin="dense"
+              label="Session Name"
+              type="text"
+              fullWidth
+              required
+              value={updateSessionName}
+              onChange={(e) => setUpdateSessionName(e.target.value)}
+              sx={{ mb: 2 }}
+            />
+            <TextField
+              margin="dense"
+              label="Description (Optional)"
+              type="text"
+              fullWidth
+              multiline
+              rows={2}
+              value={updateSessionDesc}
+              onChange={(e) => setUpdateSessionDesc(e.target.value)}
+              sx={{ mb: 2 }}
+            />
+            <Box sx={{ mb: 2 }}>
+              <Typography id="update-similarity-threshold-slider" gutterBottom>
+                Similarity Threshold: {updateSimilarityThreshold}
+              </Typography>
+              <Tooltip title="Documents with similarity scores above this threshold will be grouped together">
+                <Slider
+                  value={updateSimilarityThreshold}
+                  onChange={(e, newValue) => setUpdateSimilarityThreshold(newValue)}
+                  step={0.05}
+                  marks
+                  min={0.5}
+                  max={0.95}
+                  valueLabelDisplay="auto"
+                  aria-labelledby="update-similarity-threshold-slider"
+                />
+              </Tooltip>
+              <Typography variant="body2" color="text.secondary">
+                Higher values (closer to 1.0) require documents to be more similar to be grouped together
+              </Typography>
+            </Box>
+            <TextField
+              margin="dense"
+              label="Custom Prompt (Optional)"
+              type="text"
+              fullWidth
+              multiline
+              rows={3}
+              value={updateCustomPrompt}
+              onChange={(e) => setUpdateCustomPrompt(e.target.value)}
+              sx={{ mb: 2 }}
+              placeholder="Instructions to clean document text for similarity matching (e.g., 'Remove headers and footers')"
+              helperText="The prompt will be applied to preprocess document text before similarity matching"
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleUpdateFormClose}>Cancel</Button>
+            <Button
+              type="submit"
+              variant="contained"
+              color="primary"
+              disabled={updating}
+              startIcon={updating ? <CircularProgress size={20} /> : null}
+            >
+              {updating ? 'Updating...' : 'Update Session'}
             </Button>
           </DialogActions>
         </form>

@@ -23,7 +23,8 @@ class DocumentService:
         except Exception as e:
             print(f"Error creating metadata folder: {str(e)}")
     
-    def process_document(self, filename: str, content: bytes, folder: str = None, doc_id: str = None, source_name: str = None, description: str = None) -> str:
+    def process_document(self, filename: str, content: bytes, folder: str = None, doc_id: str = None, source_name: str = None, description: str = None, custom_prompt: str = None,
+                        prompt_model: str = "gpt-3.5-turbo") -> str:
         """Process a document and store it in the database"""
         try:
             print(f"Processing document: {filename} (size: {len(content)} bytes)")
@@ -53,7 +54,9 @@ class DocumentService:
                 "upload_date": datetime.now().isoformat(),
                 "size": len(content),
                 "source": source_name or "upload",
-                "document_key": f"{doc_id}_{filename}"
+                "document_key": f"{doc_id}_{filename}",
+                "custom_prompt": custom_prompt,
+                "prompt_model": prompt_model
             }
             
             # Store metadata in S3
